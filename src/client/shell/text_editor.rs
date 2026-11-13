@@ -269,7 +269,7 @@ pub(super) fn render(
     area: ratatui::layout::Rect,
     editor: &TextEditor,
     style: ratatui::style::Style,
-) -> Option<crate::protocol::CursorState> {
+) -> Option<crate::client::frame::CursorState> {
     let area = area.intersection(buffer.area);
     if area.is_empty() {
         return None;
@@ -279,7 +279,7 @@ pub(super) fn render(
         buffer[(x, area.y)].set_symbol(" ").set_style(style);
     }
     buffer.set_stringn(area.x, area.y, text, usize::from(area.width), style);
-    Some(crate::protocol::CursorState {
+    Some(crate::client::frame::CursorState {
         x: area.x + cursor,
         y: area.y,
         visible: true,

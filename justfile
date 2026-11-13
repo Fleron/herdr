@@ -5,6 +5,7 @@ python := if os() == "windows" { "python" } else { "python3" }
 
 # Run tests
 test:
+    cargo build --locked --example legacy-regression
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
     just maintenance-test
     just ui-hot-path-architecture-test
@@ -23,6 +24,7 @@ test-windows-input *args:
 
 # Run one nextest filter, e.g. `just test-one codex_stale_working`
 test-one filter:
+    cargo build --locked --example legacy-regression
     cargo nextest run --locked "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
 
 # Enforce deterministic UI hot-path architecture boundaries
@@ -46,6 +48,7 @@ ci filter='all()': lint
 
 # Keep the test build independently configurable from clippy in CI.
 ci-tests filter='all()':
+    cargo build --locked --example legacy-regression
     cargo nextest run --locked -E "{{filter}}" --status-level fail --final-status-level slow --failure-output final --success-output never
     just maintenance-test
     just ui-hot-path-architecture-test
@@ -92,31 +95,34 @@ build:
 bench-render-scale:
     cargo test --release --locked --bin herdr render_scale_profile -- --ignored --nocapture --test-threads=1
 
+bench-legacy-render-scale:
+    cargo test --release --locked --example legacy-regression render_scale_profile -- --ignored --nocapture --test-threads=1
+
 # Profile terminal target name resolution at increasing pane counts.
 bench-terminal-targets:
-    cargo test --release --locked --bin herdr terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --example legacy-regression terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
 
 # Profile Windows foreground inspection of isolated idle shells, without a server.
 [windows]
 bench-process-inspection:
-    cargo test --release --locked --bin herdr windows_process_inspection_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --example legacy-regression windows_process_inspection_profile -- --ignored --nocapture --test-threads=1
 
 # Profile BSP split collection and construction with balanced and skewed trees.
 bench-bsp-layout:
-    cargo test --release --locked --bin herdr bsp_layout_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --lib bsp_layout_profile -- --ignored --nocapture --test-threads=1
 
 # Profile full and retained text, static-image, and unchanged-image updates.
 bench-retained-graphics:
-    cargo test --release --locked --bin herdr render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --example legacy-regression render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
 
 # Profile first-batch latency and aggregate drain cost for external API bursts.
 bench-api-fairness:
-    cargo test --release --locked --bin herdr external_api_burst_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --example legacy-regression external_api_burst_profile -- --ignored --nocapture --test-threads=1
 
-# ~3-5 minute CPU comparison; downloads stable unless HERDR_PERF_BASELINE_BIN is set
-bench-release-smoke:
-    cargo build --release --locked
-    scripts/release_perf_smoke.sh "${CARGO_TARGET_DIR:-target}/release/herdr"
+# Legacy server CPU comparison; downloads stable unless HERDR_PERF_BASELINE_BIN is set
+bench-legacy-release-smoke:
+    cargo build --release --locked --example legacy-regression
+    scripts/release_perf_smoke.sh "${CARGO_TARGET_DIR:-target}/release/examples/legacy-regression"
 
 # Test public documentation snapshot and release lifecycle tooling
 docs-contract-test:
@@ -178,7 +184,7 @@ release-docs-check:
 pre-release-check:
     just release-docs-check
     just bench-render-scale
-    just bench-release-smoke
+    just bench-legacy-release-smoke
     @echo "release review required: investigate material render-scaling regressions before publishing."
     @echo "release review required: update skills/herdr/SKILL.md for this stable release so it matches the current CLI, IDs, agent lifecycle semantics, and safety guidance."
     @echo "release policy: do not update skills/herdr/SKILL.md between stable releases; preview builds keep the latest stable skill."

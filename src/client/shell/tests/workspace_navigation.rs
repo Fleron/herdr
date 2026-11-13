@@ -264,7 +264,7 @@ fn foreign_preview_blocks_keyboard_actions_but_keeps_active_action_context() {
     );
     assert!(
         matches!(create.actions.as_slice(), [ClientShellAction::Endpoint { endpoint_id: ClientEndpointId::Local, request, .. }]
-        if matches!(&request.method, crate::api::schema::Method::WorkspaceCreate(params) if params.source_workspace_id.as_deref() == Some("ws_1")))
+        if matches!(&request.method, crate::client::ui_action::FrontendCommand::WorkspaceCreate(params) if params.source_workspace_id.as_deref() == Some("ws_1")))
     );
     preview_key(&mut state, b"\x1b");
     assert!(state.navigate_workspace_id.is_none());
@@ -296,7 +296,7 @@ fn empty_workspace_navigation_enter_exits_without_focusing() {
 fn foreign_workspace_preview_blocks_paste_into_hidden_copy_search() {
     let (mut state, _) = state_with_remote();
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -606,7 +606,7 @@ fn request_local_navigation(state: &mut ClientShellState, down: usize) -> String
     };
     assert!(matches!(
         request.method,
-        crate::api::schema::Method::WorkspaceFocus(_)
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(_)
     ));
     request.id.clone()
 }
@@ -663,7 +663,7 @@ fn accepted_local_navigation_keeps_highlight_until_authoritative_focus() {
                 state.handle_endpoint_result(
                     "boot-1",
                     &request_id,
-                    Ok(crate::api::schema::ResponseResult::Ok {}),
+                    Ok(crate::client::ui_domain::ResponseResult::Ok {}),
                 );
                 assert_local_highlight(&mut state, "ws_3");
             }
@@ -675,7 +675,7 @@ fn accepted_local_navigation_keeps_highlight_until_authoritative_focus() {
                 state.handle_endpoint_result(
                     "boot-1",
                     &request_id,
-                    Ok(crate::api::schema::ResponseResult::Ok {}),
+                    Ok(crate::client::ui_domain::ResponseResult::Ok {}),
                 );
             }
             set_local_focus(&mut state, "ws_2", 4);
@@ -706,7 +706,7 @@ fn failed_local_navigation_releases_only_its_own_highlight() {
         state.handle_endpoint_result(
             "boot-1",
             &request_id,
-            Ok(crate::api::schema::ResponseResult::Ok {}),
+            Ok(crate::client::ui_domain::ResponseResult::Ok {}),
         );
         assert_local_highlight(&mut state, "ws_1");
     }
@@ -736,7 +736,7 @@ fn pending_navigation_highlight_does_not_survive_identity_changes() {
         state.handle_endpoint_result(
             "boot-1",
             &request_id,
-            Ok(crate::api::schema::ResponseResult::Ok {}),
+            Ok(crate::client::ui_domain::ResponseResult::Ok {}),
         );
         assert_local_highlight(&mut state, "ws_3");
         let mut snapshot = workspaces(3);
@@ -809,7 +809,7 @@ fn navigation_highlight_requires_enqueued_focus_and_yields_to_new_intent() {
     request_local_navigation(&mut state, 2);
     let mut unrelated = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::ServerReloadConfig(crate::api::schema::EmptyParams::default()),
+        crate::client::ui_action::FrontendCommand::ServerReloadConfig(crate::api::schema::EmptyParams::default()),
         &mut unrelated,
     );
     let [ClientShellAction::Endpoint { request, .. }] = unrelated.actions.as_slice() else {
@@ -828,7 +828,8 @@ fn navigation_highlight_requires_enqueued_focus_and_yields_to_new_intent() {
 
 #[test]
 fn directional_pane_focus_releases_an_accepted_workspace_highlight() {
-    use crate::api::schema::{Method, PaneDirection, ResponseResult};
+    use crate::client::ui_domain::{PaneDirection, ResponseResult};
+use crate::client::ui_action::FrontendCommand as Method;
 
     for (key, direction) in [
         (b'h', PaneDirection::Left),
@@ -891,7 +892,7 @@ fn direct_agent_focus_repaints_when_releasing_a_workspace_highlight() {
             ))]);
         assert!(
             matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method, crate::api::schema::Method::PaneFocus(params)
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneFocus(params)
                 if params.pane_id == "pane_1"))
         );
         assert!(state.pending_workspace_highlight.is_none());
@@ -920,7 +921,7 @@ fn coalesced_navigation_focus_does_not_leave_a_permanent_highlight() {
     state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::Ok {}),
+        Ok(crate::client::ui_domain::ResponseResult::Ok {}),
     );
     // Another client can focus the original workspace before the server projects
     // either change, so a successful request need not produce a new snapshot.
@@ -942,7 +943,7 @@ fn navigation_highlight_ends_for_noop_focus_and_focused_creation() {
 
     for focus in [false, true] {
         for method in [
-            crate::api::schema::Method::WorkspaceCreate(
+            crate::client::ui_action::FrontendCommand::WorkspaceCreate(
                 crate::api::schema::WorkspaceCreateParams {
                     source_workspace_id: None,
                     cwd: None,
@@ -951,7 +952,7 @@ fn navigation_highlight_ends_for_noop_focus_and_focused_creation() {
                     env: Default::default(),
                 },
             ),
-            crate::api::schema::Method::TabCreate(crate::api::schema::TabCreateParams {
+            crate::client::ui_action::FrontendCommand::TabCreate(crate::api::schema::TabCreateParams {
                 workspace_id: Some("ws_1".into()),
                 cwd: None,
                 focus,

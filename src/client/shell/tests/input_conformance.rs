@@ -335,7 +335,7 @@ impl HerdrPath {
     ) -> bool {
         let mut owned = outcome.detach;
         for request in outcome.requests {
-            if let ClientMessage::ClientShellPaneInput { events: batch, .. } = request {
+            if let UiRequest::PaneInput { events: batch, .. } = request {
                 events.extend(batch);
             }
         }
@@ -346,13 +346,13 @@ impl HerdrPath {
                     boot_id, request, ..
                 } if matches!(
                     request.method,
-                    crate::api::schema::Method::PaneLinkActivate(_)
+                    crate::client::ui_action::FrontendCommand::PaneLinkActivate(_)
                 ) =>
                 {
                     let (_, actions) = self.state.handle_endpoint_result(
                         &boot_id,
                         &request.id,
-                        Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+                        Ok(crate::client::ui_domain::ResponseResult::PaneLinkActivated {
                             url: None,
                             handled: false,
                         }),

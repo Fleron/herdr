@@ -15,7 +15,8 @@
 use ratatui::layout::Rect;
 use std::{ffi::OsStr, io::Write};
 
-use crate::{layout::PaneId, pane::ScrollMetrics};
+use crate::client::ui_state::ScrollMetrics;
+use crate::layout::PaneId;
 
 /// Current phase of a selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,12 +142,6 @@ impl<P> Selection<P> {
     /// Whether this selection should be rendered (highlight visible).
     pub fn is_visible(&self) -> bool {
         self.phase == Phase::Dragging || self.phase == Phase::Done
-    }
-
-    /// Whether this selection was already finalized.
-    #[cfg(test)]
-    pub fn is_finalized(&self) -> bool {
-        self.phase == Phase::Done
     }
 
     /// Whether the user just clicked without dragging (not a selection).

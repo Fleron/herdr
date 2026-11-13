@@ -174,6 +174,7 @@ pub(super) fn focus_request(
     focus: &crate::client::shell::ClientEndpointFocusTarget,
 ) -> std::io::Result<crate::protocol::ClientMessage> {
     let method = match focus {
+        crate::client::shell::ClientEndpointFocusTarget::Agent(_) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "agent target must resolve to a view before legacy activation")),
         #[cfg(windows)]
         crate::client::shell::ClientEndpointFocusTarget::Notification {
             pane_id,

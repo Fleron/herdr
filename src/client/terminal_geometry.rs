@@ -212,33 +212,12 @@ pub(super) fn resize_poll_loop_with(
 }
 
 #[cfg(not(windows))]
-pub(super) fn query_host_terminal_appearance() {
-    let _ = write_host_terminal_appearance_query(io::stdout());
-}
-
-#[cfg(any(not(windows), test))]
-pub(super) fn write_host_terminal_appearance_query(mut writer: impl io::Write) -> io::Result<()> {
-    writer.write_all(crate::terminal_theme::HOST_COLOR_SCHEME_QUERY_SEQUENCE.as_bytes())?;
-    writer.flush()
-}
-
-pub(super) fn query_host_terminal_theme() {
-    let _ = write_host_terminal_theme_query(io::stdout());
-}
-
-pub(super) fn write_host_terminal_theme_query(mut writer: impl io::Write) -> io::Result<()> {
-    let query = crate::terminal_theme::host_terminal_theme_query_sequence(
-        crate::platform::should_query_host_terminal_palette(),
-    );
-    writer.write_all(query.as_bytes())?;
-    writer.flush()
-}
-
-const HOST_CELL_SIZE_QUERY: &[u8] = b"\x1b[16t";
-
-pub(super) fn query_host_cell_size() {
-    let _ = write_host_cell_size_query(io::stdout());
-}
+pub(super) use super::host_queries::query_host_terminal_appearance;
+#[cfg(test)]
+pub(super) use super::host_queries::write_host_terminal_appearance_query;
+pub(super) use super::host_queries::{query_host_cell_size, query_host_terminal_theme};
+#[cfg(test)]
+pub(super) use super::host_queries::{write_host_cell_size_query, write_host_terminal_theme_query};
 
 pub(super) fn should_query_host_cell_size() -> bool {
     !cfg!(windows)
@@ -246,11 +225,6 @@ pub(super) fn should_query_host_cell_size() -> bool {
 
 pub(super) fn host_cell_size_query_required(kitty_graphics_enabled: bool) -> bool {
     kitty_graphics_enabled && should_query_host_cell_size() && ioctl_terminal_geometry().is_none()
-}
-
-pub(super) fn write_host_cell_size_query(mut writer: impl io::Write) -> io::Result<()> {
-    writer.write_all(HOST_CELL_SIZE_QUERY)?;
-    writer.flush()
 }
 
 #[cfg(unix)]

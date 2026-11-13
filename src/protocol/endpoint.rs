@@ -32,12 +32,7 @@ pub const AGENT_VIEW_PROJECTION_KIND: &str = "endpoint.agent-view.v1";
 pub const AGENT_COMPLETIONS_CAPABILITY: &str = "agent_completions";
 pub const AGENT_COMPLETIONS_KIND: &str = "endpoint.agent-completions.v1";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EndpointAgentCompletions {
-    pub boot_id: String,
-    pub revision: u64,
-    pub completions: std::collections::BTreeMap<String, u64>,
-}
+pub use crate::client::ui_model::EndpointAgentCompletions;
 
 fn default_true() -> bool {
     true
@@ -80,8 +75,8 @@ pub struct EndpointHandshakeError {
     pub message: String,
 }
 
-/// Optional companion to a V1 snapshot. The view payload is intentionally opaque to this
-/// stable envelope so clients can ignore view language additions they do not understand.
+#[doc = " Optional companion to a V1 snapshot. The view payload is intentionally opaque to this"]
+#[doc = " stable envelope so clients can ignore view language additions they do not understand."]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointAgentViewProjection {
     pub boot_id: String,

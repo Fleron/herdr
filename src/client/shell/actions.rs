@@ -68,8 +68,8 @@ impl ClientShellState {
                 }
                 if action == crate::input::KeybindAction::ReloadConfig {
                     self.push_endpoint_method_with_kind(
-                        crate::api::schema::Method::ServerReloadConfig(
-                            crate::api::schema::EmptyParams::default(),
+                        crate::client::ui_action::FrontendCommand::ServerReloadConfig(
+                            crate::client::ui_domain::EmptyParams::default(),
                         ),
                         PendingEndpointKind::ReloadConfig,
                         outcome,
@@ -85,8 +85,8 @@ impl ClientShellState {
                         self.open_new_workspace_overlay();
                     } else {
                         self.push_endpoint_method(
-                            crate::api::schema::Method::WorkspaceCreate(
-                                crate::api::schema::WorkspaceCreateParams {
+                            crate::client::ui_action::FrontendCommand::WorkspaceCreate(
+                                crate::client::ui_domain::WorkspaceCreateParams {
                                     source_workspace_id: self.workspace_action_id(),
                                     cwd: None,
                                     focus: true,
@@ -210,7 +210,8 @@ impl ClientShellState {
                 let Some(snapshot) = self.snapshot.as_deref() else {
                     return;
                 };
-                let selection = (action == crate::protocol::ClientShellCommandAction::PluginAction)
+                let selection = (action
+                    == crate::client::ui_model::ClientShellCommandAction::PluginAction)
                     .then(|| {
                         let selection = self.selection.as_ref()?;
                         if !selection.is_visible() {
@@ -227,13 +228,13 @@ impl ClientShellState {
                             .find(|pane| pane.pane_id == selection.pane_id)?
                             .content_revision;
                         let (anchor, cursor) = selection.ordered_cells();
-                        Some(crate::api::schema::PaneSelectionReadParams {
+                        Some(crate::client::ui_domain::PaneSelectionReadParams {
                             pane_id: selection.pane_id.clone(),
-                            anchor: crate::api::schema::PaneTextPoint {
+                            anchor: crate::client::ui_domain::PaneTextPoint {
                                 row: anchor.0,
                                 col: anchor.1,
                             },
-                            cursor: crate::api::schema::PaneTextPoint {
+                            cursor: crate::client::ui_domain::PaneTextPoint {
                                 row: cursor.0,
                                 col: cursor.1,
                             },
@@ -241,18 +242,18 @@ impl ClientShellState {
                         })
                     })
                     .flatten();
-                let params = crate::api::schema::CommandInvokeParams {
+                let params = crate::client::ui_domain::CommandInvokeParams {
                     command_id,
                     workspace_id: snapshot.focused_workspace_id.clone(),
                     tab_id: snapshot.focused_tab_id.clone(),
                     pane_id: snapshot.focused_pane_id.clone(),
                     selection,
                 };
-                if action == crate::protocol::ClientShellCommandAction::Popup {
+                if action == crate::client::ui_model::ClientShellCommandAction::Popup {
                     self.popup_pending = true;
                     self.popup_pending_deadline = None;
                     if !self.push_endpoint_method_with_kind(
-                        crate::api::schema::Method::CommandInvoke(params),
+                        crate::client::ui_action::FrontendCommand::CommandInvoke(params),
                         PendingEndpointKind::PopupCommand,
                         outcome,
                     ) {
@@ -260,7 +261,7 @@ impl ClientShellState {
                     }
                 } else {
                     self.push_endpoint_method(
-                        crate::api::schema::Method::CommandInvoke(params),
+                        crate::client::ui_action::FrontendCommand::CommandInvoke(params),
                         outcome,
                     );
                 }
@@ -283,14 +284,14 @@ impl ClientShellState {
             .filter(|_| !live);
         let (anchor, cursor) = selection.ordered_cells();
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneSelectionRead(
-                crate::api::schema::PaneSelectionReadParams {
+            crate::client::ui_action::FrontendCommand::PaneSelectionRead(
+                crate::client::ui_domain::PaneSelectionReadParams {
                     pane_id,
-                    anchor: crate::api::schema::PaneTextPoint {
+                    anchor: crate::client::ui_domain::PaneTextPoint {
                         row: anchor.0,
                         col: anchor.1,
                     },
-                    cursor: crate::api::schema::PaneTextPoint {
+                    cursor: crate::client::ui_domain::PaneTextPoint {
                         row: cursor.0,
                         col: cursor.1,
                     },
@@ -304,7 +305,7 @@ impl ClientShellState {
 
     pub(super) fn push_endpoint_method(
         &mut self,
-        method: crate::api::schema::Method,
+        method: crate::client::ui_action::FrontendCommand,
         outcome: &mut ClientShellInput,
     ) {
         self.push_endpoint_method_with_kind(method, PendingEndpointKind::Generic, outcome);
@@ -354,18 +355,18 @@ impl ClientShellState {
 
     pub(super) fn push_endpoint_method_with_kind(
         &mut self,
-        method: crate::api::schema::Method,
+        method: crate::client::ui_action::FrontendCommand,
         kind: PendingEndpointKind,
         outcome: &mut ClientShellInput,
     ) -> bool {
         let changes_focus = match &method {
-            crate::api::schema::Method::WorkspaceFocus(_)
-            | crate::api::schema::Method::TabFocus(_)
-            | crate::api::schema::Method::PaneFocus(_)
-            | crate::api::schema::Method::PaneFocusDirection(_) => true,
-            crate::api::schema::Method::WorkspaceCreate(params) => params.focus,
-            crate::api::schema::Method::TabCreate(params) => params.focus,
-            crate::api::schema::Method::PaneSplit(params) => params.focus,
+            crate::client::ui_action::FrontendCommand::WorkspaceFocus(_)
+            | crate::client::ui_action::FrontendCommand::TabFocus(_)
+            | crate::client::ui_action::FrontendCommand::PaneFocus(_)
+            | crate::client::ui_action::FrontendCommand::PaneFocusDirection(_) => true,
+            crate::client::ui_action::FrontendCommand::WorkspaceCreate(params) => params.focus,
+            crate::client::ui_action::FrontendCommand::TabCreate(params) => params.focus,
+            crate::client::ui_action::FrontendCommand::PaneSplit(params) => params.focus,
             _ => false,
         };
         if changes_focus {
@@ -376,7 +377,7 @@ impl ClientShellState {
             outcome.repaint |= self.receive_endpoint_unavailable(format!("{label} is not ready"));
             return false;
         }
-        let method_name = crate::api::api_method_name(&method).to_owned();
+        let method_name = method.name().to_owned();
         if !self.supports_endpoint_method(&method) {
             outcome.repaint |= self.push_endpoint_notice(
                 ClientEndpointNoticeKind::Unsupported,
@@ -392,12 +393,12 @@ impl ClientShellState {
             return false;
         };
         let confirmation_workspace_id = match &method {
-            crate::api::schema::Method::TabClose(target) => snapshot
+            crate::client::ui_action::FrontendCommand::TabClose(target) => snapshot
                 .tabs
                 .iter()
                 .find(|tab| tab.tab_id == target.tab_id)
                 .map(|tab| tab.workspace_id.clone()),
-            crate::api::schema::Method::PaneClose(target) => snapshot
+            crate::client::ui_action::FrontendCommand::PaneClose(target) => snapshot
                 .panes
                 .iter()
                 .find(|pane| pane.pane_id == target.pane_id)
@@ -419,7 +420,7 @@ impl ClientShellState {
         outcome.actions.push(ClientShellAction::Endpoint {
             endpoint_id: self.active_endpoint_id.clone(),
             boot_id: snapshot.boot_id.clone(),
-            request: Box::new(crate::api::schema::Request {
+            request: Box::new(crate::client::ui_action::FrontendRequest {
                 id: request_id,
                 method,
             }),
@@ -427,11 +428,11 @@ impl ClientShellState {
         true
     }
 
-    pub(crate) fn receive_endpoint_error(&mut self, message: String) -> bool {
+    pub(crate) fn receive_runtime_error(&mut self, message: String) -> bool {
         self.push_endpoint_notice(
             ClientEndpointNoticeKind::Rejected,
-            "paste_rejected",
-            "Paste rejected",
+            message.clone(),
+            "Action failed",
             message,
         )
     }
@@ -445,62 +446,11 @@ impl ClientShellState {
         )
     }
 
-    pub(crate) fn focus_endpoint_target(
-        &mut self,
-        target: ClientEndpointFocusTarget,
-    ) -> Vec<ClientShellAction> {
-        #[cfg(windows)]
-        if !self.notification_target_is_current(&self.active_endpoint_id, &target) {
-            return Vec::new();
-        }
-        let method = match target {
-            ClientEndpointFocusTarget::Workspace(workspace_id) => {
-                crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
-                    workspace_id,
-                })
-            }
-            ClientEndpointFocusTarget::Tab(tab_id) => {
-                crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id })
-            }
-            ClientEndpointFocusTarget::Pane(pane_id) => {
-                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
-            }
-            #[cfg(windows)]
-            ClientEndpointFocusTarget::Notification { pane_id, .. } => {
-                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
-            }
-        };
-        let mut outcome = ClientShellInput::default();
-        self.push_endpoint_method(method, &mut outcome);
-        outcome.actions
-    }
-
-    pub(crate) fn cancel_endpoint_request(&mut self, request_id: &str) -> bool {
-        let Some(pending) = self.pending_requests.get(request_id) else {
-            return false;
-        };
-        let boot_id = pending.boot_id.clone();
-        let (repaint, actions) = self.handle_endpoint_result(
-            &boot_id,
-            request_id,
-            Err(ClientShellEndpointError {
-                code: Some("endpoint_cancelled".into()),
-                message: "This server action was interrupted. Check its state before retrying."
-                    .into(),
-            }),
-        );
-        debug_assert!(
-            actions.is_empty(),
-            "cancellation must not start another action"
-        );
-        repaint
-    }
-
     pub(crate) fn handle_endpoint_result(
         &mut self,
         boot_id: &str,
         request_id: &str,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::client::ui_domain::ResponseResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
         let Some(pending) = self.pending_requests.remove(request_id) else {
             return (false, Vec::new());
@@ -635,15 +585,13 @@ impl ClientShellState {
             }
             PendingEndpointKind::SelectionCopy => {
                 return match result {
-                    Ok(crate::api::schema::ResponseResult::PaneSelection { text, .. })
-                        if !text.is_empty() =>
-                    {
-                        (
-                            false,
-                            vec![ClientShellAction::ClipboardWrite(text.into_bytes())],
-                        )
-                    }
-                    Ok(crate::api::schema::ResponseResult::PaneSelection { .. }) => {
+                    Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
+                        text, ..
+                    }) if !text.is_empty() => (
+                        false,
+                        vec![ClientShellAction::ClipboardWrite(text.into_bytes())],
+                    ),
+                    Ok(crate::client::ui_domain::ResponseResult::PaneSelection { .. }) => {
                         (false, Vec::new())
                     }
                     Ok(_) => {
@@ -688,21 +636,23 @@ impl ClientShellState {
                         .collect()
                 };
                 return match result {
-                    Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+                    Ok(crate::client::ui_domain::ResponseResult::PaneLinkActivated {
                         handled: true,
                         ..
                     }) => {
                         self.url_click_consumes_until_up = completed_before_release;
                         (false, Vec::new())
                     }
-                    Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
+                    Ok(crate::client::ui_domain::ResponseResult::PaneLinkActivated {
                         url: Some(url),
                         handled: false,
-                    }) if crate::app::actions::safe_web_url(&url).is_some() && replay.is_some() => {
+                    }) if crate::client::terminal_text::safe_web_url(&url).is_some()
+                        && replay.is_some() =>
+                    {
                         self.url_click_consumes_until_up = completed_before_release;
                         (false, vec![ClientShellAction::OpenSafeWebUrl(url)])
                     }
-                    Ok(crate::api::schema::ResponseResult::PaneLinkActivated { .. }) => {
+                    Ok(crate::client::ui_domain::ResponseResult::PaneLinkActivated { .. }) => {
                         (false, replay_action(replay))
                     }
                     Ok(_) => {
@@ -732,7 +682,7 @@ impl ClientShellState {
             } => {
                 let mut outcome = ClientShellInput::default();
                 let (repaint, continue_queue) = match result {
-                    Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+                    Ok(crate::client::ui_domain::ResponseResult::PaneCopyMotion {
                         pane_id: returned_pane_id,
                         cursor,
                         content_revision,
@@ -746,7 +696,9 @@ impl ClientShellState {
                         ),
                         true,
                     ),
-                    Ok(crate::api::schema::ResponseResult::PaneCopyMotion { .. }) => (false, false),
+                    Ok(crate::client::ui_domain::ResponseResult::PaneCopyMotion { .. }) => {
+                        (false, false)
+                    }
                     Ok(_) => {
                         self.set_endpoint_error(
                             "endpoint returned an unexpected copy-motion result",
@@ -769,7 +721,7 @@ impl ClientShellState {
             } => {
                 let mut outcome = ClientShellInput::default();
                 let (repaint, continue_queue) = match result {
-                    Ok(crate::api::schema::ResponseResult::PaneCopySearch {
+                    Ok(crate::client::ui_domain::ResponseResult::PaneCopySearch {
                         pane_id: returned_pane_id,
                         content_revision,
                         matches,
@@ -798,7 +750,7 @@ impl ClientShellState {
                         }
                         (repaint, repaint)
                     }
-                    Ok(crate::api::schema::ResponseResult::PaneCopySearch { .. }) => {
+                    Ok(crate::client::ui_domain::ResponseResult::PaneCopySearch { .. }) => {
                         self.cancel_deferred_copy_after_search(generation);
                         (false, false)
                     }
@@ -819,7 +771,7 @@ impl ClientShellState {
             }
             PendingEndpointKind::ReloadConfig => {
                 let repaint = match result {
-                    Ok(crate::api::schema::ResponseResult::ConfigReload { .. }) => false,
+                    Ok(crate::client::ui_domain::ResponseResult::ConfigReload { .. }) => false,
                     Ok(_) => {
                         self.set_endpoint_error(
                             "endpoint returned an unexpected config reload result",
@@ -860,9 +812,10 @@ impl ClientShellState {
     pub(super) fn endpoint_method_for_action(
         &mut self,
         action: crate::input::KeybindAction,
-    ) -> Option<crate::api::schema::Method> {
-        use crate::api::schema::{
-            Method, PaneDirection, PaneFocusDirectionParams, PaneResizeParams, PaneSplitParams,
+    ) -> Option<crate::client::ui_action::FrontendCommand> {
+        use crate::client::ui_action::FrontendCommand as Method;
+        use crate::client::ui_domain::{
+            PaneDirection, PaneFocusDirectionParams, PaneResizeParams, PaneSplitParams,
             PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
             TabCreateParams, TabMoveParams, TabTarget, WorkspaceTarget,
         };
@@ -1116,4 +1069,9 @@ impl ClientShellState {
             _ => None,
         }
     }
+}
+
+legacy_shell_extensions! {
+    #[path = "actions/legacy.rs"]
+    mod legacy;
 }

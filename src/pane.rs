@@ -27,7 +27,7 @@ use crate::render_signal::RenderSignal;
 mod agent_detection;
 mod background_agent;
 mod cursor;
-mod input;
+use herdr_core_tui::pane_input as input;
 mod kitty_keyboard;
 mod osc;
 mod state;

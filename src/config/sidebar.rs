@@ -47,7 +47,7 @@ pub struct SidebarTokenColor {
 }
 
 impl SidebarTokenColor {
-    pub(crate) fn ratatui(self) -> ratatui::style::Color {
+    pub fn ratatui(self) -> ratatui::style::Color {
         ratatui::style::Color::Rgb(self.r, self.g, self.b)
     }
 }
@@ -139,14 +139,14 @@ pub enum SpaceSidebarToken {
 }
 
 impl AgentSidebarToken {
-    pub(crate) fn style_for_value(&self, value: &str) -> Option<SidebarTokenStyle> {
+    pub fn style_for_value(&self, value: &str) -> Option<SidebarTokenStyle> {
         match self {
             Self::Styled { style, rules, .. } => rules::matching_style(rules, *style, value),
             _ => Some(SidebarTokenStyle::default()),
         }
     }
 
-    pub(crate) fn parts(&self) -> (&Self, SidebarTokenStyle) {
+    pub fn parts(&self) -> (&Self, SidebarTokenStyle) {
         match self {
             Self::Styled { token, style, .. } => (token, *style),
             token => (token, SidebarTokenStyle::default()),
@@ -155,14 +155,14 @@ impl AgentSidebarToken {
 }
 
 impl SpaceSidebarToken {
-    pub(crate) fn style_for_value(&self, value: &str) -> Option<SidebarTokenStyle> {
+    pub fn style_for_value(&self, value: &str) -> Option<SidebarTokenStyle> {
         match self {
             Self::Styled { style, rules, .. } => rules::matching_style(rules, *style, value),
             _ => Some(SidebarTokenStyle::default()),
         }
     }
 
-    pub(crate) fn parts(&self) -> (&Self, SidebarTokenStyle) {
+    pub fn parts(&self) -> (&Self, SidebarTokenStyle) {
         match self {
             Self::Styled { token, style, .. } => (token, *style),
             token => (token, SidebarTokenStyle::default()),
@@ -430,7 +430,7 @@ pub struct AgentsSidebarConfig {
 }
 
 impl AgentsSidebarConfig {
-    pub(crate) fn rows_for_agent(&self, agent: Option<Agent>) -> &AgentSidebarRows {
+    pub fn rows_for_agent(&self, agent: Option<Agent>) -> &AgentSidebarRows {
         agent
             .and_then(|agent| self.rows_by_agent.get(crate::detect::agent_label(agent)))
             .unwrap_or(&self.rows)

@@ -58,10 +58,12 @@ Inside pane-scaled render and layout loops:
 
 Prefer deterministic operation or architecture tests to wall-clock CI limits.
 Performance benchmarks are supporting evidence, not substitutes for behavioral
-coverage. Before a stable release, `just bench-release-smoke` must compare the
-candidate with the current stable binary under hidden and visible output. When
-the result moves materially or when validating performance work, repeat it with
-`HERDR_PERF_SAMPLE_SECONDS=60` and investigate the affected scenario.
+coverage. Before a stable core-backed release, compare the candidate under hidden
+and visible output using the same core version and isolated terminals. The
+`just bench-legacy-release-smoke` recipe compares only the retained legacy example
+with the stable legacy binary; it does not qualify the core-backed client. When
+that legacy result moves materially or when validating legacy performance work,
+repeat it with `HERDR_PERF_SAMPLE_SECONDS=60` and investigate the affected scenario.
 
 ### Runtime/client boundary guardrail
 

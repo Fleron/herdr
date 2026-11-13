@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 use crate::cli::projection::{cli_params, Field, Input};
 use crate::cli::workspace_bindings as bindings;
 
@@ -13,7 +11,7 @@ fn json_compatibility() -> Input<bool> {
 
 cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
-    pub struct WorktreeListParams => WorktreeListProjection {
+    pub struct WorktreeListParams = crate::client::ui_domain::WorktreeListParams => WorktreeListProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub workspace_id: Option<String> => Field::new(None).input(workspace().order(0)),
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -27,7 +25,7 @@ cli_params! {
 
 cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
-    pub struct WorktreeCreateParams => WorktreeCreateProjection {
+    pub struct WorktreeCreateParams = crate::client::ui_domain::WorktreeCreateParams => WorktreeCreateProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub workspace_id: Option<String> => Field::new(None).input(workspace().order(0)),
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,7 +51,7 @@ cli_params! {
 
 cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
-    pub struct WorktreeOpenParams => WorktreeOpenProjection {
+    pub struct WorktreeOpenParams = crate::client::ui_domain::WorktreeOpenParams => WorktreeOpenProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub workspace_id: Option<String> => Field::new(None).input(workspace().order(0)),
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -77,7 +75,7 @@ cli_params! {
 
 cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-    pub struct WorktreeRemoveParams => WorktreeRemoveProjection {
+    pub struct WorktreeRemoveParams = crate::client::ui_domain::WorktreeRemoveParams => WorktreeRemoveProjection {
         pub workspace_id: String => Field::new(String::new()).input(Input::value("workspace", "ID", |slot, value| {
             *slot = crate::cli::normalize_workspace_id(value);
             Ok(())
@@ -91,26 +89,6 @@ cli_params! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WorktreeSourceInfo {
-    pub repo_key: String,
-    pub repo_name: String,
-    pub repo_root: String,
-    pub source_checkout_path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_workspace_id: Option<String>,
-}
+pub use crate::client::ui_domain::worktrees::WorktreeSourceInfo;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WorktreeInfo {
-    pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
-    pub is_bare: bool,
-    pub is_detached: bool,
-    pub is_prunable: bool,
-    pub is_linked_worktree: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub open_workspace_id: Option<String>,
-    pub label: String,
-}
+pub use crate::client::ui_domain::worktrees::WorktreeInfo;

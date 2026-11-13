@@ -26,9 +26,9 @@ fn toast_index(delivery: crate::config::ToastDelivery) -> usize {
     }
 }
 
-pub(super) fn integration_needs_install(info: &crate::api::schema::IntegrationInfo) -> bool {
-    info.state == crate::api::schema::IntegrationState::Outdated
-        || info.available && info.state == crate::api::schema::IntegrationState::NotInstalled
+pub(super) fn integration_needs_install(info: &crate::client::ui_domain::IntegrationInfo) -> bool {
+    info.state == crate::client::ui_domain::IntegrationState::Outdated
+        || info.available && info.state == crate::client::ui_domain::IntegrationState::NotInstalled
 }
 
 impl ClientShellState {
@@ -148,7 +148,7 @@ impl ClientShellState {
         };
         self.config.theme_name = (*name).to_owned();
         self.config.palette =
-            crate::app::client_palette_for_theme(&self.config.theme_runtime, name);
+            crate::client::theme::client_palette_for_theme(&self.config.theme_runtime, name);
     }
 
     pub(super) fn cancel_settings_overlay(&mut self) {
@@ -171,8 +171,8 @@ impl ClientShellState {
         }
         self.reload_client_config();
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::ServerReloadConfig(
-                crate::api::schema::EmptyParams::default(),
+            crate::client::ui_action::FrontendCommand::ServerReloadConfig(
+                crate::client::ui_domain::EmptyParams::default(),
             ),
             PendingEndpointKind::ReloadConfig,
             outcome,
@@ -234,7 +234,9 @@ impl ClientShellState {
             }
         }
         if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::IntegrationList(crate::api::schema::EmptyParams::default()),
+            crate::client::ui_action::FrontendCommand::IntegrationList(
+                crate::client::ui_domain::EmptyParams::default(),
+            ),
             PendingEndpointKind::IntegrationList,
             outcome,
         ) {
@@ -267,8 +269,8 @@ impl ClientShellState {
         self.pending_integration_installs = 0;
         for target in targets {
             if self.push_endpoint_method_with_kind(
-                crate::api::schema::Method::IntegrationInstall(
-                    crate::api::schema::IntegrationInstallParams { target },
+                crate::client::ui_action::FrontendCommand::IntegrationInstall(
+                    crate::client::ui_domain::IntegrationInstallParams { target },
                 ),
                 PendingEndpointKind::IntegrationInstall,
                 outcome,
@@ -287,14 +289,14 @@ impl ClientShellState {
     pub(super) fn handle_settings_endpoint_result(
         &mut self,
         kind: PendingEndpointKind,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::client::ui_domain::ResponseResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
         match kind {
             PendingEndpointKind::IntegrationList => {
                 if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
                     settings.loading_integrations = false;
                     match result {
-                        Ok(crate::api::schema::ResponseResult::IntegrationList {
+                        Ok(crate::client::ui_domain::ResponseResult::IntegrationList {
                             integrations,
                         }) => {
                             settings.integrations = integrations;
@@ -320,7 +322,7 @@ impl ClientShellState {
                     self.pending_integration_installs.saturating_sub(1);
                 if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
                     match result {
-                        Ok(crate::api::schema::ResponseResult::IntegrationInstall {
+                        Ok(crate::client::ui_domain::ResponseResult::IntegrationInstall {
                             details,
                             ..
                         }) => settings.integration_messages.extend(details.messages),

@@ -1,0 +1,25 @@
+#[path = "ui/panes.rs"]
+pub(crate) mod panes;
+pub(crate) use panes::render_selection_highlight;
+#[path = "ui/onboarding.rs"]
+pub(crate) mod onboarding;
+#[path = "ui/release_notes.rs"]
+pub(crate) mod release_notes;
+#[path = "ui/scrollbar.rs"]
+pub(crate) mod scrollbar;
+#[path = "ui/sidebar.rs"]
+pub(crate) mod sidebar;
+#[path = "ui/status.rs"]
+pub(crate) mod status;
+#[path = "ui/text.rs"]
+pub(crate) mod text;
+#[path = "ui/widgets.rs"]
+pub(crate) mod widgets;
+
+pub(crate) use onboarding::*;
+pub(crate) use release_notes::*;
+pub(crate) use scrollbar::*;
+pub(crate) use sidebar::*;
+pub(crate) use status::*;
+pub(crate) use text::*;
+pub(crate) use widgets::*;

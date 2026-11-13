@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::ClientMessage;
 
 #[path = "workspace_navigation.rs"]
 mod workspace_navigation;
@@ -23,9 +24,14 @@ fn agent(
     state_change_seq: u64,
 ) -> ClientShellAgent {
     ClientShellAgent {
-        pane_id: "pane_1".into(),
-        workspace_id: "ws_1".into(),
-        tab_id: "tab_1".into(),
+        agent_id: "pane_1".into(),
+        view: Some(crate::client::ui_model::AgentViewTarget {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+        }),
+        runtime_target: None,
+        cwd: None,
         name: Some(name.into()),
         display_agent: None,
         agent: Some("pi".into()),
@@ -41,7 +47,7 @@ fn agent(
 }
 
 fn current_workspace_view() -> crate::api::schema::AgentViewSetParams {
-    use crate::api::schema::{
+    use crate::client::ui_domain::{
         AgentViewBuiltinField, AgentViewContext, AgentViewField, AgentViewFilter, AgentViewValue,
     };
 
@@ -127,7 +133,7 @@ fn workspace_navigation_waits_for_the_target_presentation_fence() {
         )]);
         assert!(matches!(outcome.actions.as_slice(),
             [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method, crate::api::schema::Method::WorkspaceFocus(target)
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
                 if target.workspace_id == expected)));
         let mut commands = EndpointCommands::default();
         let mut scheduled = None;
@@ -167,6 +173,7 @@ fn workspace_navigation_waits_for_the_target_presentation_fence() {
             panic!("queued navigation must reach the target after the fence");
         };
         let request: crate::api::schema::Request = serde_json::from_str(request).unwrap();
+
         assert!(
             matches!(request.method, crate::api::schema::Method::WorkspaceFocus(target)
             if target.workspace_id == expected)
@@ -506,7 +513,12 @@ fn state_with_scrollable_agents() -> (ClientShellState, ClientEndpointId) {
             .unwrap();
         projection.agents = (0..8)
             .map(|index| ClientShellAgent {
-                pane_id: format!("pane_{}", index + 1),
+                agent_id: format!("pane_{}", index + 1),
+                view: Some(crate::client::ui_model::AgentViewTarget {
+                    pane_id: format!("pane_{}", index + 1),
+                    workspace_id: "ws_1".into(),
+                    tab_id: "tab_1".into(),
+                }),
                 focused: index == 0,
                 ..agent(&format!("agent {index}"), AgentStatus::Idle, 1)
             })
@@ -515,7 +527,8 @@ fn state_with_scrollable_agents() -> (ClientShellState, ClientEndpointId) {
             .agents
             .iter()
             .map(|agent| ClientShellPane {
-                pane_id: agent.pane_id.clone(),
+                runtime_target: None,
+                pane_id: agent.agent_id.clone(),
                 focused: agent.focused,
                 ..projection.panes[0].clone()
             })
@@ -602,7 +615,7 @@ fn agent_navigation_reveals_offscreen_targets() {
             .hits
             .endpoint_agents
             .iter()
-            .any(|(_, endpoint, pane)| { endpoint == &endpoint_id && pane == pane_id }));
+            .any(|(_, endpoint, pane, _)| { endpoint == &endpoint_id && pane == pane_id }));
 
         let mut outcome = ClientShellInput::default();
         assert!(state.handle_endpoint_navigation(action, &mut outcome));
@@ -616,7 +629,7 @@ fn agent_navigation_reveals_offscreen_targets() {
                 .hits
                 .endpoint_agents
                 .iter()
-                .any(|(_, endpoint, pane)| { endpoint == &endpoint_id && pane == pane_id }),
+                .any(|(_, endpoint, pane, _)| { endpoint == &endpoint_id && pane == pane_id }),
             "{action:?} must reveal the selected agent"
         );
     }
@@ -624,7 +637,7 @@ fn agent_navigation_reveals_offscreen_targets() {
 
 #[test]
 fn agent_navigation_reveals_target_using_destination_sort() {
-    use crate::api::schema::{
+    use crate::client::ui_domain::{
         AgentViewBuiltinSortField, AgentViewSort, AgentViewSortField, AgentViewSortOrder,
     };
 
@@ -676,7 +689,7 @@ fn agent_navigation_reveals_target_using_destination_sort() {
         .hits
         .endpoint_agents
         .iter()
-        .any(|(_, endpoint, pane)| { endpoint == &remote && pane == "pane_8" }));
+        .any(|(_, endpoint, pane, _)| { endpoint == &remote && pane == "pane_8" }));
 }
 
 #[test]
@@ -706,7 +719,7 @@ fn agent_navigation_reveal_is_cancelled_by_another_selection() {
 #[test]
 fn agent_navigation_keeps_scroll_when_target_is_visible() {
     let (mut state, _) = state_with_scrollable_agents();
-    let (_, endpoint_id, pane_id) = state.hits.endpoint_agents[1].clone();
+    let (_, endpoint_id, pane_id, _) = state.hits.endpoint_agents[1].clone();
     let targets = super::super::aggregate_navigation::online_agent_targets(
         &state.endpoints,
         &state.active_endpoint_id,
@@ -714,7 +727,7 @@ fn agent_navigation_keeps_scroll_when_target_is_visible() {
     );
     let index = targets
         .iter()
-        .position(|target| target.endpoint_id == endpoint_id && target.pane_id == pane_id)
+        .position(|target| target.endpoint_id == endpoint_id && target.agent_id == pane_id)
         .unwrap();
     let scroll = state.agent_scroll;
     assert!(state.handle_endpoint_navigation(
@@ -730,9 +743,9 @@ fn switching_machines_preserves_aggregate_agent_scroll_and_visible_rows() {
     let (mut state, remote) = state_with_scrollable_agents();
     for endpoint_id in [remote.clone(), ClientEndpointId::Local, remote] {
         let visible = state.hits.endpoint_agents.clone();
-        let (rect, _, pane_id) = visible
+        let (rect, _, pane_id, _) = visible
             .iter()
-            .find(|(_, endpoint, _)| endpoint == &endpoint_id)
+            .find(|(_, endpoint, _, _)| endpoint == &endpoint_id)
             .expect("destination agent remains visible");
         let click = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -774,11 +787,11 @@ fn local_agent_click_can_cancel_a_pending_remote_switch() {
             state.mark_endpoint_disconnected(&ClientEndpointId::Local);
         }
         state.compose(100, 28).unwrap();
-        let (rect, _, pane_id) = state
+        let (rect, _, pane_id, _) = state
             .hits
             .endpoint_agents
             .iter()
-            .find(|(_, endpoint, _)| endpoint.is_local())
+            .find(|(_, endpoint, _, _)| endpoint.is_local())
             .unwrap()
             .clone();
         let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
@@ -833,7 +846,7 @@ fn same_machine_reboot_still_resets_agent_scroll() {
 fn switching_machines_from_copy_mode_restores_terminal_input() {
     let (mut state, remote) = state_with_remote();
     let mut local_surface = surface();
-    local_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    local_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -857,7 +870,7 @@ fn switching_machines_from_copy_mode_restores_terminal_input() {
     ))]);
     assert!(matches!(
         input.requests.as_slice(),
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1" && events.len() == 1
     ));
 }
@@ -1123,7 +1136,7 @@ fn saved_machine_preserves_endpoint_scoped_worktree_collapses() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::WorkspaceFocus(target)
+                crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
                     if target.workspace_id == "remote_ws_2"
             )
     ));
@@ -1218,6 +1231,7 @@ fn expanded_machine_sidebar_reveals_newly_focused_workspace() {
     let template = initial.workspaces[0].clone();
     initial.workspaces = (1..=12)
         .map(|number| ClientShellWorkspace {
+            new_workspace_label: "repo".into(),
             workspace_id: format!("ws_{number}"),
             number,
             label: format!("space-{number}"),
@@ -1229,6 +1243,7 @@ fn expanded_machine_sidebar_reveals_newly_focused_workspace() {
     let mut remote = initial.clone();
     remote.boot_id = "remote-boot".into();
     remote.workspaces.push(ClientShellWorkspace {
+        new_workspace_label: "repo".into(),
         workspace_id: "ws_13".into(),
         number: 13,
         focused: false,
@@ -1242,6 +1257,7 @@ fn expanded_machine_sidebar_reveals_newly_focused_workspace() {
     let mut update = state.snapshot.as_deref().expect("snapshot").clone();
     update.revision = 2;
     update.workspaces.push(ClientShellWorkspace {
+        new_workspace_label: "repo".into(),
         workspace_id: "ws_13".into(),
         number: 13,
         label: "new-space".into(),
@@ -1440,7 +1456,7 @@ fn active_workspace_is_the_only_highlight_when_machine_is_expanded() {
 
 #[test]
 fn aggregate_agents_use_configured_rows_machine_token_and_status_colors() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     use crate::config::{AgentSidebarToken, StatusIndicatorStyle};
 
     let mut config = Config::default();
@@ -1504,7 +1520,7 @@ fn aggregate_agents_use_configured_rows_machine_token_and_status_colors() {
 
 #[test]
 fn current_workspace_agent_view_excludes_same_workspace_id_on_other_machine() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     use crate::config::AgentSidebarToken;
 
     let mut config = Config::default();
@@ -1568,7 +1584,7 @@ fn current_workspace_agent_view_excludes_same_workspace_id_on_other_machine() {
 
 #[test]
 fn current_workspace_or_blocked_keeps_foreign_attention_only() {
-    use crate::api::schema::{
+    use crate::client::ui_domain::{
         AgentStatus, AgentViewBuiltinField, AgentViewField, AgentViewFilter, AgentViewValue,
     };
     use crate::config::AgentSidebarToken;
@@ -1593,7 +1609,12 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
     remote.agents = vec![
         agent("remote idle", AgentStatus::Idle, 1),
         ClientShellAgent {
-            pane_id: "pane_2".into(),
+            agent_id: "pane_2".into(),
+            view: Some(crate::client::ui_model::AgentViewTarget {
+                pane_id: "pane_2".into(),
+                workspace_id: "ws_1".into(),
+                tab_id: "tab_1".into(),
+            }),
             name: Some("remote blocked".into()),
             agent_status: AgentStatus::Blocked,
             focused: false,
@@ -1601,6 +1622,7 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
         },
     ];
     remote.panes.push(ClientShellPane {
+        runtime_target: None,
         pane_id: "pane_2".into(),
         focused: false,
         ..remote.panes[0].clone()
@@ -1638,7 +1660,7 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
 
 #[test]
 fn selected_default_view_ignores_inactive_endpoint_projection() {
-    use crate::api::schema::{
+    use crate::client::ui_domain::{
         AgentStatus, AgentViewBuiltinField, AgentViewField, AgentViewFilter, AgentViewValue,
     };
     use crate::config::AgentSidebarToken;
@@ -1737,7 +1759,7 @@ fn newer_snapshot_does_not_reuse_stale_agent_view_projection() {
 
 #[test]
 fn legacy_custom_views_keep_v1_per_endpoint_projection() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     use crate::config::AgentSidebarToken;
 
     let mut config = Config::default();
@@ -1779,7 +1801,7 @@ fn legacy_custom_views_keep_v1_per_endpoint_projection() {
 
 #[test]
 fn selected_custom_sort_orders_rendering_and_indexed_navigation() {
-    use crate::api::schema::{
+    use crate::client::ui_domain::{
         AgentStatus, AgentViewBuiltinSortField, AgentViewSort, AgentViewSortField,
         AgentViewSortOrder,
     };
@@ -1846,7 +1868,7 @@ fn selected_custom_sort_orders_rendering_and_indexed_navigation() {
 
 #[test]
 fn selected_position_sort_uses_public_tab_and_pane_numbers() {
-    use crate::api::schema::{
+    use crate::client::ui_domain::{
         AgentStatus, AgentViewBuiltinSortField, AgentViewSort, AgentViewSortField,
         AgentViewSortOrder,
     };
@@ -1874,14 +1896,14 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
     selected.panes = vec![pane_tab_nine, pane_nine, pane_two];
 
     let mut late_tab = agent("tab nine", AgentStatus::Idle, 1);
-    late_tab.tab_id = "ws_1:t9".into();
-    late_tab.pane_id = "ws_1:p1".into();
+    late_tab.view.as_mut().unwrap().tab_id = "ws_1:t9".into();
+    late_tab.view.as_mut().unwrap().pane_id = "ws_1:p1".into();
     let mut late_pane = agent("pane nine", AgentStatus::Idle, 1);
-    late_pane.tab_id = "ws_1:t2".into();
-    late_pane.pane_id = "ws_1:p9".into();
+    late_pane.view.as_mut().unwrap().tab_id = "ws_1:t2".into();
+    late_pane.view.as_mut().unwrap().pane_id = "ws_1:p9".into();
     let mut early_pane = agent("pane two", AgentStatus::Idle, 1);
-    early_pane.tab_id = "ws_1:t2".into();
-    early_pane.pane_id = "ws_1:p2".into();
+    early_pane.view.as_mut().unwrap().tab_id = "ws_1:t2".into();
+    early_pane.view.as_mut().unwrap().pane_id = "ws_1:p2".into();
     selected.agents = vec![late_tab, late_pane, early_pane];
     state.set_snapshot(Box::new(selected));
 
@@ -1913,7 +1935,7 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
 
 #[test]
 fn aggregate_priority_uses_client_observed_recency_across_machines() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     use crate::config::AgentSidebarToken;
 
     let mut config = Config::default();
@@ -1987,7 +2009,7 @@ fn aggregate_priority_uses_client_observed_recency_across_machines() {
 
 #[test]
 fn unselected_endpoint_completion_projects_done_client_side() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
 
     let (mut state, endpoint_id) = state_with_remote();
     let mut remote = snapshot();
@@ -2378,7 +2400,7 @@ fn reconnect_snapshot_waits_for_coherent_activation_before_replacing_projection(
 
 #[test]
 fn disconnected_active_endpoint_freezes_surface_and_marks_cached_ui_stale() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     use crate::config::{AgentSidebarToken, StatusIndicatorStyle};
 
     let (mut state, endpoint_id) = state_with_remote();
@@ -2523,6 +2545,8 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     }));
     assert!(rows.iter().all(|row| match row.target {
         ClientNavigatorTarget::Machine { .. } => row.depth == 0 && row.status.is_none(),
+        ClientNavigatorTarget::Checkout { .. } =>
+            panic!("legacy fixtures contain saved workspaces"),
         ClientNavigatorTarget::Workspace { .. } => row.depth == 1 && row.status.is_none(),
         ClientNavigatorTarget::Pane { .. } => row.depth == 2 && row.status.is_some(),
     }));
@@ -2532,6 +2556,9 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     for (rect, target) in &state.hits.navigator_rows {
         let expected = match target {
             ClientNavigatorTarget::Machine { .. } => " ",
+            ClientNavigatorTarget::Checkout { .. } => {
+                panic!("legacy fixtures contain saved workspaces")
+            }
             ClientNavigatorTarget::Workspace { .. } => "   ",
             ClientNavigatorTarget::Pane { .. } => "   └─ ",
         };
@@ -2570,6 +2597,8 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
         .iter()
         .all(|row| !matches!(row.target, ClientNavigatorTarget::Machine { .. })));
     assert!(rows.iter().all(|row| match row.target {
+        ClientNavigatorTarget::Checkout { .. } =>
+            panic!("legacy fixtures contain saved workspaces"),
         ClientNavigatorTarget::Workspace { .. } => row.depth == 0,
         ClientNavigatorTarget::Pane { .. } => row.depth == 1,
         ClientNavigatorTarget::Machine { .. } => false,
@@ -2604,6 +2633,8 @@ fn navigator_keeps_saved_machine_visible_before_metadata_arrives() {
     }));
     assert!(!rows.iter().any(|row| match &row.target {
         ClientNavigatorTarget::Machine { .. } => false,
+        ClientNavigatorTarget::Checkout { .. } =>
+            panic!("legacy fixture has no available checkout"),
         ClientNavigatorTarget::Workspace {
             endpoint_id: target,
             ..
@@ -2700,7 +2731,7 @@ fn navigator_foreign_pane_selection_activates_its_endpoint() {
 
 #[test]
 fn mobile_foreign_agent_and_workspace_targets_activate_their_endpoint() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
 
     let (mut state, endpoint_id) = state_with_remote();
     state
@@ -2723,7 +2754,7 @@ fn mobile_foreign_agent_and_workspace_targets_activate_their_endpoint() {
                 target,
                 ClientMobileTarget::Agent {
                     endpoint_id: target_endpoint,
-                    pane_id,
+                    target:ClientEndpointFocusTarget::Pane(pane_id),
                 } if target_endpoint == &endpoint_id && pane_id == "pane_1"
             )
             .then_some(*rect)
@@ -2775,7 +2806,7 @@ fn mobile_foreign_agent_and_workspace_targets_activate_their_endpoint() {
 
 #[test]
 fn cached_offline_navigator_and_mobile_targets_are_dimmed_and_disabled() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
 
     let (mut state, endpoint_id) = state_with_remote();
     state
@@ -2870,7 +2901,7 @@ fn cached_offline_navigator_and_mobile_targets_are_dimmed_and_disabled() {
 
 #[test]
 fn focus_agent_index_uses_online_aggregate_rows() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
 
     let (mut state, endpoint_id) = state_with_remote();
     state
@@ -2927,7 +2958,7 @@ fn workspace_drag_rejects_foreign_endpoint_slots() {
 
 #[test]
 fn collapsed_aggregate_workspace_status_uses_its_status_color() {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
 
     let (mut state, endpoint_id) = state_with_remote();
     state

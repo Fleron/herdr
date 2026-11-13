@@ -30,7 +30,7 @@ fn plus_commands_survive_snapshots_and_reload_for_both_keybinding_sources() {
             let mut projection = snapshot();
             projection.revision = revision;
             projection.server_keybindings_toml = config.local_keybindings_profile_toml().ok();
-            projection.commands = app.client_shell_command_manifest();
+            projection.commands = app.client_shell_command_manifest().into_iter().map(Into::into).collect();
             assert_eq!(projection.commands.len(), 1);
             let command_id = projection.commands[0].command_id.clone();
             state.set_snapshot(Box::new(projection));
@@ -53,7 +53,7 @@ fn plus_commands_survive_snapshots_and_reload_for_both_keybinding_sources() {
                         outcome.actions
                     );
                 };
-                let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
+                let crate::client::ui_action::FrontendCommand::CommandInvoke(params) = &request.method else {
                     panic!("expected command.invoke");
                 };
                 assert_eq!(params.command_id, command_id);
@@ -85,7 +85,7 @@ fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
     };
     assert!(matches!(
         request.method,
-        crate::api::schema::Method::WorkspaceCreate(_)
+        crate::client::ui_action::FrontendCommand::WorkspaceCreate(_)
     ));
 
     let new_tab = state.hits.new_tab;
@@ -243,11 +243,11 @@ fn manual_client_chrome_preferences_round_trip_per_endpoint() {
 fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
     let mut projected = snapshot();
     projected.tab_bar_right = vec![
-        crate::protocol::ClientShellTabStatusSegment {
+        crate::client::ui_model::ClientShellTabStatusSegment {
             text: "ZOOM".into(),
             accent: true,
         },
-        crate::protocol::ClientShellTabStatusSegment {
+        crate::client::ui_model::ClientShellTabStatusSegment {
             text: "host".into(),
             accent: false,
         },
@@ -396,7 +396,7 @@ fn prefix_endpoint_action_uses_public_api_with_stable_ids() {
     };
     assert_eq!(boot_id, "boot-1");
     match &request.method {
-        crate::api::schema::Method::TabCreate(params) => {
+        crate::client::ui_action::FrontendCommand::TabCreate(params) => {
             assert_eq!(params.workspace_id.as_deref(), Some("ws_1"));
             assert!(params.focus);
         }
@@ -435,11 +435,11 @@ command = "local-only"
     let mut local_projection = snapshot();
     local_projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "cmd_loaded_endpoint".into(),
             binding_label: "prefix+c / prefix+y".into(),
             binding_labels: vec!["prefix+c".into(), "prefix+y".into()],
-            action: crate::protocol::ClientShellCommandAction::Shell,
+            action: crate::client::ui_model::ClientShellCommandAction::Shell,
             description: Some("loaded endpoint command".into()),
         });
     local_state.set_snapshot(Box::new(local_projection));
@@ -467,7 +467,7 @@ command = "local-only"
     let [ClientShellAction::Endpoint { request, .. }] = &command_outcome.actions[..] else {
         panic!("expected surviving endpoint command binding");
     };
-    let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
+    let crate::client::ui_action::FrontendCommand::CommandInvoke(params) = &request.method else {
         panic!("expected command invocation");
     };
     assert_eq!(params.command_id, "cmd_loaded_endpoint");
@@ -476,11 +476,11 @@ command = "local-only"
     id_only_projection.revision = 2;
     id_only_projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "cmd_reloaded_endpoint".into(),
             binding_label: "prefix+c / prefix+y".into(),
             binding_labels: vec!["prefix+c".into(), "prefix+y".into()],
-            action: crate::protocol::ClientShellCommandAction::Shell,
+            action: crate::client::ui_model::ClientShellCommandAction::Shell,
             description: Some("loaded endpoint command".into()),
         });
     local_state.mode = ClientShellMode::Prefix;
@@ -507,11 +507,11 @@ new_tab = "prefix+n"
     projection.server_keybindings_toml = endpoint.local_keybindings_profile_toml().ok();
     projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "cmd_remote".into(),
             binding_label: "prefix+z".into(),
             binding_labels: vec!["prefix+z".into()],
-            action: crate::protocol::ClientShellCommandAction::Shell,
+            action: crate::client::ui_model::ClientShellCommandAction::Shell,
             description: Some("remote command".into()),
         });
     state.set_snapshot(Box::new(projection));
@@ -541,7 +541,7 @@ new_tab = "prefix+n"
 fn custom_binding_invokes_only_the_endpoint_manifest_id() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("z"),
+        bindings: crate::config::ActionKeybinds::from_labels(&["prefix+z".into()]).unwrap(),
         label: "prefix+z".into(),
         command: "secret-command --token hidden".into(),
         action: crate::config::CustomCommandAction::Shell,
@@ -552,11 +552,11 @@ fn custom_binding_invokes_only_the_endpoint_manifest_id() {
     let mut projection = snapshot();
     projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "cmd_0123456789abcdef0123456789abcdef".into(),
             binding_label: binding.label.clone(),
             binding_labels: binding.bindings.labels(),
-            action: crate::protocol::ClientShellCommandAction::Shell,
+            action: crate::client::ui_model::ClientShellCommandAction::Shell,
             description: None,
         });
     state.set_snapshot(Box::new(projection));
@@ -567,7 +567,7 @@ fn custom_binding_invokes_only_the_endpoint_manifest_id() {
     let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
         panic!("expected endpoint command invocation");
     };
-    let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
+    let crate::client::ui_action::FrontendCommand::CommandInvoke(params) = &request.method else {
         panic!("expected command.invoke");
     };
     assert_eq!(params.command_id, "cmd_0123456789abcdef0123456789abcdef");
@@ -575,7 +575,7 @@ fn custom_binding_invokes_only_the_endpoint_manifest_id() {
     assert_eq!(params.tab_id.as_deref(), Some("tab_1"));
     assert_eq!(params.pane_id.as_deref(), Some("pane_1"));
     assert_eq!(params.selection, None);
-    assert!(!serde_json::to_string(request)
+    assert!(!serde_json::to_string(&crate::api::schema::Request::from((**request).clone()))
         .unwrap()
         .contains("secret-command"));
 }
@@ -584,7 +584,7 @@ fn custom_binding_invokes_only_the_endpoint_manifest_id() {
 fn plugin_command_carries_client_owned_selection_coordinates() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("p"),
+        bindings: crate::config::ActionKeybinds::from_labels(&["prefix+p".into()]).unwrap(),
         label: "prefix+p".into(),
         command: "plugin.action".into(),
         action: crate::config::CustomCommandAction::PluginAction,
@@ -595,11 +595,11 @@ fn plugin_command_carries_client_owned_selection_coordinates() {
     let mut projection = snapshot();
     projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "cmd_plugin".into(),
             binding_label: binding.label.clone(),
             binding_labels: binding.bindings.labels(),
-            action: crate::protocol::ClientShellCommandAction::PluginAction,
+            action: crate::client::ui_model::ClientShellCommandAction::PluginAction,
             description: None,
         });
     state.set_snapshot(Box::new(projection));
@@ -617,7 +617,7 @@ fn plugin_command_carries_client_owned_selection_coordinates() {
     let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
         panic!("expected endpoint command invocation");
     };
-    let crate::api::schema::Method::CommandInvoke(params) = &request.method else {
+    let crate::client::ui_action::FrontendCommand::CommandInvoke(params) = &request.method else {
         panic!("expected command.invoke");
     };
     assert_eq!(
@@ -640,7 +640,7 @@ fn unavailable_endpoint_method_is_disabled_without_disconnect() {
     let mut outcome = ClientShellInput::default();
 
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
             workspace_id: "missing".into(),
         }),
         &mut outcome,
@@ -659,7 +659,7 @@ fn unavailable_endpoint_method_is_disabled_without_disconnect() {
 
     let mut repeated = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
             workspace_id: "missing".into(),
         }),
         &mut repeated,
@@ -691,7 +691,7 @@ fn generic_endpoint_failures_and_control_errors_are_visible() {
     state.set_snapshot(Box::new(snapshot()));
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
             workspace_id: "missing".into(),
         }),
         &mut outcome,
@@ -747,7 +747,7 @@ fn endpoint_timeout_is_a_deduplicated_server_notice() {
     state.set_snapshot(Box::new(snapshot()));
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method(
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
             workspace_id: "work".into(),
         }),
         &mut outcome,
@@ -784,7 +784,7 @@ fn endpoint_notice_dedupe_resets_for_a_new_server_boot() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_endpoint_methods(Some(Vec::new()));
     let method = || {
-        crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
             workspace_id: "work".into(),
         })
     };
@@ -813,7 +813,7 @@ fn custom_binding_missing_from_endpoint_manifest_is_not_forwarded() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("z"),
+        bindings: crate::config::ActionKeybinds::from_labels(&["prefix+z".into()]).unwrap(),
         label: "prefix+z".into(),
         command: "secret-command".into(),
         action: crate::config::CustomCommandAction::Shell,
@@ -839,11 +839,11 @@ fn help_overlay_restores_released_search_scroll_and_custom_binding_behavior() {
     let mut projection = snapshot();
     projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "plugin-action".into(),
             binding_label: "prefix+z".into(),
             binding_labels: vec!["prefix+z".into()],
-            action: crate::protocol::ClientShellCommandAction::PluginAction,
+            action: crate::client::ui_model::ClientShellCommandAction::PluginAction,
             description: Some("run plugin action".into()),
         });
     state.set_snapshot(Box::new(projection));
@@ -944,7 +944,7 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneResize(params)
+                crate::client::ui_action::FrontendCommand::PaneResize(params)
                     if params.direction == crate::api::schema::PaneDirection::Left
             )
     ));
@@ -956,7 +956,7 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneResize(params)
+        crate::client::ui_action::FrontendCommand::PaneResize(params)
             if params.pane_id.as_deref() == Some("pane_1")
                 && params.direction == crate::api::schema::PaneDirection::Left
     ));

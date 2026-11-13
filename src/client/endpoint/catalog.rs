@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
-use super::ProfileId;
+use super::{ProfileId, SavedSshEndpoint};
 
 const CATALOG_VERSION: u32 = 1;
 const SELECTION_VERSION: u32 = 1;
@@ -15,15 +15,6 @@ pub(crate) const MAX_LABEL_BYTES: usize = 128;
 const MAX_TARGET_BYTES: usize = 1024;
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SavedSshEndpoint {
-    pub(crate) id: ProfileId,
-    pub(crate) label: String,
-    pub(crate) target: String,
-    pub(crate) session: String,
-    pub(crate) enabled: bool,
-}
 
 impl SavedSshEndpoint {
     pub(crate) fn new(
@@ -207,6 +198,7 @@ impl EndpointCatalog {
                 true
             }
             super::ClientEndpointId::Ssh(profile_id) => self.select_ssh(profile_id),
+            super::ClientEndpointId::Core { .. } => false,
         }
     }
 

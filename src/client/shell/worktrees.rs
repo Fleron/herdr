@@ -10,7 +10,7 @@ fn checkout_path_preview(root: &str, repo: &str, branch: &str) -> String {
     format!(
         "{}{separator}{repo}{separator}{}",
         root.trim_end_matches(separator),
-        crate::worktree::branch_to_path_slug(branch)
+        crate::worktree_names::branch_to_path_slug(branch)
     )
 }
 
@@ -181,7 +181,8 @@ impl ClientShellState {
         workspace_id: String,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::api::schema::{Method, WorktreeListParams};
+        use crate::client::ui_action::FrontendCommand as Method;
+        use crate::client::ui_domain::WorktreeListParams;
         use crate::input::KeybindAction;
 
         let workspace = self.snapshot.as_deref().and_then(|snapshot| {
@@ -202,10 +203,10 @@ impl ClientShellState {
                 return;
             }
             KeybindAction::NewWorktree => PendingEndpointKind::PrepareWorktreeCreate {
-                workspace_id: workspace_id.clone(),
+                source: ClientWorktreeSource::Workspace(workspace_id.clone()),
             },
             KeybindAction::OpenWorktree => PendingEndpointKind::PrepareWorktreeOpen {
-                workspace_id: workspace_id.clone(),
+                source: ClientWorktreeSource::Workspace(workspace_id.clone()),
             },
             KeybindAction::RemoveWorktree if !linked => {
                 self.set_endpoint_error("This workspace is not a Herdr-managed worktree checkout.");
@@ -261,18 +262,20 @@ impl ClientShellState {
             checkout_path_preview(&worktree_directory, &create.repo_name, &branch);
         create.creating = true;
         create.error = None;
-        let workspace_id = create.source_workspace_id.clone();
+        let (workspace_id, cwd) = create.source.params();
         if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::WorktreeCreate(crate::api::schema::WorktreeCreateParams {
-                workspace_id: Some(workspace_id),
-                cwd: None,
-                branch: Some(branch),
-                base: Some("HEAD".to_owned()),
-                path: None,
-                label: None,
-                focus: false,
-                trust_repository: false,
-            }),
+            crate::client::ui_action::FrontendCommand::WorktreeCreate(
+                crate::client::ui_domain::WorktreeCreateParams {
+                    workspace_id,
+                    cwd,
+                    branch: Some(branch),
+                    base: Some("HEAD".to_owned()),
+                    path: None,
+                    label: None,
+                    focus: false,
+                    trust_repository: false,
+                },
+            ),
             PendingEndpointKind::WorktreeCreate,
             outcome,
         ) {
@@ -313,21 +316,23 @@ impl ClientShellState {
         let Some(entry) = open.entries.get(index) else {
             return;
         };
-        let workspace_id = open.source_workspace_id.clone();
+        let (workspace_id, cwd) = open.source.params();
         let path = entry.path.clone();
         open.selected = index;
         open.opening = true;
         open.error = None;
         if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::WorktreeOpen(crate::api::schema::WorktreeOpenParams {
-                workspace_id: Some(workspace_id),
-                cwd: None,
-                path: Some(path),
-                branch: None,
-                label: None,
-                focus: true,
-                trust_repository: false,
-            }),
+            crate::client::ui_action::FrontendCommand::WorktreeOpen(
+                crate::client::ui_domain::WorktreeOpenParams {
+                    workspace_id,
+                    cwd,
+                    path: Some(path),
+                    branch: None,
+                    label: None,
+                    focus: true,
+                    trust_repository: false,
+                },
+            ),
             PendingEndpointKind::WorktreeOpen,
             outcome,
         ) {
@@ -350,11 +355,13 @@ impl ClientShellState {
         remove.removing = true;
         remove.error = None;
         if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::WorktreeRemove(crate::api::schema::WorktreeRemoveParams {
-                workspace_id,
-                force: forced,
-                trust_repository: false,
-            }),
+            crate::client::ui_action::FrontendCommand::WorktreeRemove(
+                crate::client::ui_domain::WorktreeRemoveParams {
+                    workspace_id,
+                    force: forced,
+                    trust_repository: false,
+                },
+            ),
             PendingEndpointKind::WorktreeRemove { forced },
             outcome,
         ) {
@@ -368,21 +375,23 @@ impl ClientShellState {
     pub(super) fn handle_worktree_endpoint_result(
         &mut self,
         kind: PendingEndpointKind,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::client::ui_domain::ResponseResult, ClientShellEndpointError>,
         outcome: &mut ClientShellInput,
     ) -> bool {
-        use crate::api::schema::ResponseResult;
+        use crate::client::ui_domain::ResponseResult;
 
         match (kind, result) {
             (
-                PendingEndpointKind::PrepareWorktreeCreate { workspace_id },
+                PendingEndpointKind::PrepareWorktreeCreate {
+                    source: dialog_source,
+                },
                 Ok(ResponseResult::WorktreeList { source, .. }),
             ) => {
                 let seed = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|duration| duration.as_micros().min(u128::from(u64::MAX)) as u64)
                     .unwrap_or(0);
-                let branch = crate::worktree::generated_branch_slug(seed);
+                let branch = crate::worktree_names::generated_branch_slug(seed);
                 let Some(worktree_directory) = self.endpoint_worktree_directory() else {
                     return false;
                 };
@@ -390,7 +399,7 @@ impl ClientShellState {
                     checkout_path_preview(&worktree_directory, &source.repo_name, &branch);
                 self.overlay = Some(ClientShellOverlay::WorktreeCreate(
                     ClientWorktreeCreateOverlay {
-                        source_workspace_id: workspace_id,
+                        source: dialog_source,
                         repo_name: source.repo_name,
                         branch: TextEditor::new(&branch, true),
                         checkout_path,
@@ -401,7 +410,9 @@ impl ClientShellState {
                 true
             }
             (
-                PendingEndpointKind::PrepareWorktreeOpen { workspace_id },
+                PendingEndpointKind::PrepareWorktreeOpen {
+                    source: dialog_source,
+                },
                 Ok(ResponseResult::WorktreeList { worktrees, .. }),
             ) => {
                 let entries = worktrees
@@ -424,7 +435,7 @@ impl ClientShellState {
                 } else {
                     self.overlay = Some(ClientShellOverlay::WorktreeOpen(
                         ClientWorktreeOpenOverlay {
-                            source_workspace_id: workspace_id,
+                            source: dialog_source,
                             entries,
                             selected: 0,
                             query: TextEditor::default(),
@@ -467,9 +478,9 @@ impl ClientShellState {
             ) => {
                 self.overlay = None;
                 self.push_endpoint_method(
-                    crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget {
-                        tab_id: tab.tab_id,
-                    }),
+                    crate::client::ui_action::FrontendCommand::TabFocus(
+                        crate::client::ui_domain::TabTarget { tab_id: tab.tab_id },
+                    ),
                     outcome,
                 );
                 true
@@ -499,7 +510,9 @@ impl ClientShellState {
             (PendingEndpointKind::WorktreeRemove { forced: false }, Err(error))
                 if error.code.as_deref() == Some("dirty_worktree_requires_force")
                     || (error.code.as_deref() == Some("worktree_remove_failed")
-                        && crate::worktree::is_not_working_tree_remove_error(&error.message)) =>
+                        && crate::worktree_names::is_not_working_tree_remove_error(
+                            &error.message,
+                        )) =>
             {
                 if let Some(ClientShellOverlay::WorktreeRemove(remove)) = self.overlay.as_mut() {
                     remove.removing = false;

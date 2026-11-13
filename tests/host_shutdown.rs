@@ -1,5 +1,8 @@
 #![cfg(target_os = "linux")]
 
+#[path = "legacy_binary/mod.rs"]
+mod legacy_binary;
+
 use std::io::{BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -125,7 +128,7 @@ async fn host_shutdown_saves_layout_before_releasing_delay_lock() {
     let config = base.join("config.toml");
     std::fs::write(&config, "onboarding = false\n[experimental]\nallow_nested = true\n[terminal]\ndefault_shell = \"/bin/sh\"\n").unwrap();
     let mut server = ChildGuard(
-        Command::new(env!("CARGO_BIN_EXE_herdr"))
+        Command::new(legacy_binary::path())
             .args(["--session", "shutdown", "server"])
             .env("XDG_CONFIG_HOME", &base)
             .env("XDG_STATE_HOME", &base)

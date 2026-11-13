@@ -12,7 +12,7 @@ mod write;
 
 pub use self::{
     io::{
-        config_diagnostic_summary, config_dir, config_path, load_live_config,
+        app_dir_name, config_diagnostic_summary, config_dir, config_path, load_live_config,
         remove_keybinding_config_sections, remove_section_key, state_dir, upsert_section_bool,
         upsert_section_value,
     },
@@ -38,24 +38,25 @@ pub use self::{
     window_title::{WindowTitlePart, WindowTitleTemplate, WindowTitleToken},
 };
 
-pub(crate) use self::keybinds::parse_key_combo;
-pub(crate) use self::write::{update_file_at, write_edit, ConfigEdit};
-pub(crate) use self::{
+pub use self::keybinds::parse_key_combo;
+pub use self::write::{update_file_at, write_edit, ConfigEdit};
+pub use self::{
     io::upsert_top_level_bool,
     tab_bar::{
         parse_tab_bar_datetime_format, tab_bar_right_diagnostics,
         MAX_TAB_BAR_COMMAND_INTERVAL_SECONDS, MAX_TAB_BAR_COMMAND_TIMEOUT_SECONDS,
         MAX_TAB_BAR_RIGHT_ENTRIES,
     },
-    theme::canonical_theme_name,
     window_title::{sanitize_window_title_text, window_title_diagnostics},
 };
 
-pub(crate) use self::{keybinds::CommandKeybindType, model::KeysConfig};
+pub(crate) use self::theme::canonical_theme_name;
+pub use self::{keybinds::CommandKeybindType, model::KeysConfig};
 
 pub const CONFIG_PATH_ENV_VAR: &str = "HERDR_CONFIG_PATH";
+pub const DEFAULT_CONFIG: &str = include_str!("config/default.toml");
 
-pub(crate) fn is_keybinding_config_diagnostic(diagnostic: &str) -> bool {
+pub fn is_keybinding_config_diagnostic(diagnostic: &str) -> bool {
     if diagnostic.starts_with("config parse error:") || diagnostic.starts_with("config read error:")
     {
         return false;
@@ -63,9 +64,7 @@ pub(crate) fn is_keybinding_config_diagnostic(diagnostic: &str) -> bool {
     diagnostic.contains("keybinding") || diagnostic.contains("keys.")
 }
 
-pub(crate) fn config_diagnostic_summary_without_keybindings(
-    diagnostics: &[String],
-) -> Option<String> {
+pub fn config_diagnostic_summary_without_keybindings(diagnostics: &[String]) -> Option<String> {
     let diagnostics = diagnostics
         .iter()
         .filter(|diagnostic| !is_keybinding_config_diagnostic(diagnostic))
@@ -78,11 +77,6 @@ pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 pub const DEFAULT_MOBILE_WIDTH_THRESHOLD: u16 = 64;
 pub const DEFAULT_HEADLESS_COLS: u16 = 120;
 pub const DEFAULT_HEADLESS_ROWS: u16 = 40;
-
-#[cfg(test)]
-pub(crate) fn app_dir_name() -> &'static str {
-    io::app_dir_name()
-}
 
 #[cfg(test)]
 pub(crate) fn test_config_env_lock() -> &'static std::sync::Mutex<()> {
@@ -126,7 +120,7 @@ impl Config {
             .collect()
     }
 
-    pub(crate) fn headless_size(&self) -> (u16, u16) {
+    pub fn headless_size(&self) -> (u16, u16) {
         if self.invalid_headless_size_diagnostic().is_some() {
             (DEFAULT_HEADLESS_COLS, DEFAULT_HEADLESS_ROWS)
         } else {
@@ -134,7 +128,7 @@ impl Config {
         }
     }
 
-    pub(crate) fn invalid_headless_size_diagnostic(&self) -> Option<String> {
+    pub fn invalid_headless_size_diagnostic(&self) -> Option<String> {
         (self.server.headless_cols == 0 || self.server.headless_rows == 0).then(|| {
             format!(
                 "server.headless_cols and server.headless_rows must be greater than zero (got {}x{})",
@@ -143,7 +137,7 @@ impl Config {
         })
     }
 
-    pub(crate) fn invalid_sidebar_bounds_diagnostic(&self) -> Option<String> {
+    pub fn invalid_sidebar_bounds_diagnostic(&self) -> Option<String> {
         validated_sidebar_bounds(self.ui.sidebar_min_width, self.ui.sidebar_max_width)
             .is_none()
             .then(|| {
@@ -154,7 +148,7 @@ impl Config {
             })
     }
 
-    pub(crate) fn remote_image_paste_key(&self) -> Result<Option<(KeyCode, KeyModifiers)>, String> {
+    pub fn remote_image_paste_key(&self) -> Result<Option<(KeyCode, KeyModifiers)>, String> {
         let raw = self.keys.remote_image_paste.trim();
         if raw.is_empty() {
             return Ok(None);
@@ -164,7 +158,7 @@ impl Config {
         })
     }
 
-    pub(crate) fn live_keybinds_with_diagnostics(
+    pub fn live_keybinds_with_diagnostics(
         &self,
     ) -> Result<(LiveKeybindConfig, Vec<String>), Vec<String>> {
         let (prefix_diag, prefix, keybind_diags, keybinds) = self.validated_keybinds();
@@ -175,7 +169,7 @@ impl Config {
         }
     }
 
-    pub(crate) fn local_keybindings_profile_toml(&self) -> Result<String, toml::ser::Error> {
+    pub fn local_keybindings_profile_toml(&self) -> Result<String, toml::ser::Error> {
         #[derive(serde::Serialize)]
         struct KeysProfile {
             keys: model::KeysConfigOverlay,
@@ -187,7 +181,7 @@ impl Config {
     }
 }
 
-pub(crate) fn keybindings_from_profile_toml(profile: &str) -> Result<LiveKeybindConfig, String> {
+pub fn keybindings_from_profile_toml(profile: &str) -> Result<LiveKeybindConfig, String> {
     let config = toml::from_str::<Config>(profile)
         .map_err(|err| format!("invalid keybinding profile: {err}"))?;
     config
@@ -195,6 +189,10 @@ pub(crate) fn keybindings_from_profile_toml(profile: &str) -> Result<LiveKeybind
         .map(|(keybinds, _diagnostics)| keybinds)
         .map_err(|diagnostics| diagnostics.join("; "))
 }
+
+pub use tab_bar::{sanitize_literal_text, sanitize_separator, sanitize_status_text};
+
+pub use window_title::default_window_title;
 
 #[cfg(test)]
 mod tests {

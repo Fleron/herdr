@@ -4,19 +4,27 @@ use crossterm::event::{MouseButton, MouseEventKind};
 
 #[derive(Default)]
 pub(super) struct MachineDiagnostics {
-    errors: HashMap<ClientEndpointId, String>,
+    pub(super) errors: HashMap<ClientEndpointId, String>,
     hover: Option<ClientEndpointId>,
     /// Retries the client loop has not yet handed to the endpoint supervisors.
-    retry_requests: Vec<ClientEndpointId>,
+    pub(super) retry_requests: Vec<ClientEndpointId>,
     /// Requested retries whose failure should reopen the fresh diagnostic.
-    retry_reports: HashSet<ClientEndpointId>,
+    pub(super) retry_reports: HashSet<ClientEndpointId>,
 }
 
 impl MachineDiagnostics {
     pub(super) fn required_for(&self, endpoint: &ClientShellEndpoint) -> bool {
+        if matches!(
+            endpoint.endpoint_id,
+            ClientEndpointId::Core { local: false, .. }
+        ) {
+            return endpoint.status == ClientEndpointStatus::Attention;
+        }
         self.errors
             .get(&endpoint.endpoint_id)
-            .is_some_and(|message| crate::remote::ssh_error_requires_authentication(message))
+            .is_some_and(|message| {
+                crate::client::connection_diagnostics::ssh_error_requires_authentication(message)
+            })
     }
 
     pub(super) fn badge_style(
@@ -51,19 +59,6 @@ fn machine_diagnostic_code(profile_id: &impl std::fmt::Display) -> String {
 }
 
 impl ClientShellState {
-    pub(crate) fn receive_machine_unavailable(
-        &mut self,
-        id: &ClientEndpointId,
-        message: String,
-    ) -> bool {
-        self.push_endpoint_notice(
-            ClientEndpointNoticeKind::Unavailable,
-            format!("machine-unavailable:{}:{message}", id.storage_key()),
-            "Endpoint unavailable",
-            message,
-        )
-    }
-
     pub(crate) fn set_machine_diagnostic(&mut self, id: &ClientEndpointId, message: String) {
         if !id.is_local() {
             self.machine_diagnostics.errors.insert(
@@ -85,8 +80,13 @@ impl ClientShellState {
     /// Asks for an immediate connection attempt instead of waiting out the backoff.
     /// Returns false when the machine has no pending reconnect to bring forward.
     pub(super) fn retry_machine(&mut self, id: &ClientEndpointId) -> bool {
-        let ClientEndpointId::Ssh(profile_id) = id else {
-            return false;
+        let code = match id {
+            ClientEndpointId::Ssh(profile_id) => machine_diagnostic_code(profile_id),
+            ClientEndpointId::Core {
+                machine_id,
+                local: false,
+            } => machine_diagnostic_code(machine_id),
+            _ => return false,
         };
         if !self
             .endpoints
@@ -96,7 +96,6 @@ impl ClientShellState {
             return false;
         }
         // Clear the selected machine's diagnostic or active disconnect notice.
-        let code = machine_diagnostic_code(profile_id);
         let unavailable = format!("machine-unavailable:{}:", id.storage_key());
         if self.visible_endpoint_notice.as_ref().is_some_and(|notice| {
             notice.key.code == code || notice.key.code.starts_with(&unavailable)
@@ -171,17 +170,32 @@ impl ClientShellState {
     }
 
     fn show_machine_diagnostic(&mut self, id: &ClientEndpointId) {
-        let ClientEndpointId::Ssh(profile_id) = id else {
-            return;
-        };
         let Some(error) = self.machine_diagnostics.errors.get(id) else {
             return;
         };
-        let code = machine_diagnostic_code(profile_id);
-        let command = if crate::remote::ssh_error_requires_authentication(error) {
-            format!("herdr machine reconnect {profile_id}")
-        } else {
-            format!("herdr machine status {profile_id}")
+        let (code, title) = match id {
+            ClientEndpointId::Ssh(profile_id) => {
+                let command =
+                    if crate::client::connection_diagnostics::ssh_error_requires_authentication(
+                        error,
+                    ) {
+                        format!("herdr machine reconnect {profile_id}")
+                    } else {
+                        format!("herdr machine status {profile_id}")
+                    };
+                (
+                    machine_diagnostic_code(profile_id),
+                    format!("{}: {command}", self.endpoint_label(id)),
+                )
+            }
+            ClientEndpointId::Core {
+                machine_id,
+                local: false,
+            } => (
+                machine_diagnostic_code(machine_id),
+                format!("{}: connection needs attention", self.endpoint_label(id)),
+            ),
+            _ => return,
         };
         // A requested retry can report its diagnostic, but must not replace another notice.
         if self
@@ -197,9 +211,14 @@ impl ClientShellState {
                 kind: ClientEndpointNoticeKind::Unavailable,
                 code,
             },
-            title: format!("{}: {command}", self.endpoint_label(id)),
+            title,
             body: error.clone(),
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(15),
         });
     }
+}
+
+legacy_shell_extensions! {
+    #[path = "machine_diagnostics/legacy.rs"]
+    mod legacy;
 }

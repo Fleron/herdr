@@ -62,7 +62,7 @@ fn selection_release_copies_latest_position_before_deferred_paint() {
         &release.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(&request.method,
-                crate::api::schema::Method::PaneSelectionRead(params)
+                crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                     if params.cursor == crate::api::schema::PaneTextPoint { row: 0, col: 2 })
     ));
     state.compose(106, 20).expect("release frame");
@@ -89,7 +89,7 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
     let request_id = request.id.clone();
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneLinkActivate(params)
+        crate::client::ui_action::FrontendCommand::PaneLinkActivate(params)
             if params.pane_id == "pane_1" && params.viewport_row == 1 && params.col == 2
     ));
 
@@ -102,10 +102,12 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
-            url: Some("https://example.test".to_owned()),
-            handled: false,
-        }),
+        Ok(
+            crate::client::ui_domain::ResponseResult::PaneLinkActivated {
+                url: Some("https://example.test".to_owned()),
+                handled: false,
+            },
+        ),
     );
     assert!(matches!(
         &actions[..],
@@ -123,10 +125,12 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
             .handle_endpoint_result(
                 "boot-1",
                 &request.id,
-                Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
-                    url: Some(url.into()),
-                    handled,
-                }),
+                Ok(
+                    crate::client::ui_domain::ResponseResult::PaneLinkActivated {
+                        url: Some(url.into()),
+                        handled,
+                    },
+                ),
             )
             .1
     };
@@ -177,9 +181,9 @@ fn ctrl_click_routes_link_activation_through_endpoint_then_client_host() {
     let native = state.handle_raw_events(vec![RawInputEvent::Mouse(down)]);
     assert!(!native.actions.iter().any(|action| matches!(action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneLinkActivate(_)))));
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::PaneLinkActivate(_)))));
     assert!(matches!(&native.requests[..],
-        [ClientMessage::ClientShellPaneInput { events, .. }]
+        [UiRequest::PaneInput { events, .. }]
             if matches!(&events[..], [ClientPaneInputEvent::Mouse { modifiers, .. }]
                 if *modifiers == KeyModifiers::CONTROL.bits())));
     assert!(state.selection.is_none());
@@ -206,10 +210,12 @@ fn ctrl_click_without_a_link_replays_the_original_gesture() {
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
-            url: None,
-            handled: false,
-        }),
+        Ok(
+            crate::client::ui_domain::ResponseResult::PaneLinkActivated {
+                url: None,
+                handled: false,
+            },
+        ),
     );
     assert!(matches!(
         &actions[..],
@@ -222,7 +228,7 @@ fn ctrl_click_without_a_link_replays_the_original_gesture() {
     assert!(matches!(
         &replay.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::PaneFocus(_))
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::PaneFocus(_))
     ));
     assert!(state.selection.is_some());
 }
@@ -233,6 +239,7 @@ fn pane_split_drag_uses_projected_handle_and_stable_tab_path() {
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
     pane_surface.splits.push(PaneSurfaceSplit {
+        split_id: None,
         direction: PaneSurfaceSplitDirection::Horizontal,
         pos: 40,
         area: SurfaceRect {
@@ -267,13 +274,14 @@ fn pane_split_drag_uses_projected_handle_and_stable_tab_path() {
     replacement.revision = 2;
     replacement
         .tab_bar_right
-        .push(crate::protocol::ClientShellTabStatusSegment {
+        .push(crate::client::ui_model::ClientShellTabStatusSegment {
             text: "updated".into(),
             accent: false,
         });
     let mut replacement_surface = surface();
     replacement_surface.projection_revision = 2;
     replacement_surface.splits.push(PaneSurfaceSplit {
+        split_id: None,
         direction: PaneSurfaceSplitDirection::Horizontal,
         pos: 40,
         area: SurfaceRect {
@@ -303,7 +311,7 @@ fn pane_split_drag_uses_projected_handle_and_stable_tab_path() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::LayoutSetSplitRatio(params)
+        crate::client::ui_action::FrontendCommand::LayoutSetSplitRatio{params,..}
             if params.tab_id.as_deref() == Some("tab_1")
                 && params.path == vec![false, true]
                 && (params.ratio - 0.6).abs() < f32::EPSILON
@@ -332,6 +340,7 @@ fn disabled_mouse_chrome_keeps_tab_wheel_but_removes_split_drag_hits() {
     projected.tabs.push(second_tab);
     let mut pane_surface = surface();
     pane_surface.splits.push(PaneSurfaceSplit {
+        split_id: None,
         direction: PaneSurfaceSplitDirection::Horizontal,
         pos: 40,
         area: SurfaceRect {
@@ -365,7 +374,7 @@ fn disabled_mouse_chrome_keeps_tab_wheel_but_removes_split_drag_hits() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_2"
+                crate::client::ui_action::FrontendCommand::TabFocus(target) if target.tab_id == "tab_2"
             )
     ));
 }
@@ -390,7 +399,10 @@ fn client_double_click_selects_word_and_copies_only_after_release() {
             assert!(state.copy_feedback.is_none());
             actions = word_drag_mouse(&mut state, release, 0, 8).actions;
         }
-        assert!(state.selection.as_ref().unwrap().is_finalized());
+        assert!(state
+            .selection
+            .as_ref()
+            .is_some_and(|selection| { selection.is_visible() && !selection.is_in_progress() }));
         assert_eq!(
             state.selection.as_ref().unwrap().ordered_cells(),
             ((0, 6), (0, 10))
@@ -404,7 +416,7 @@ fn client_double_click_selects_word_and_copies_only_after_release() {
         if copy_on_select {
             assert!(
                 matches!(&actions[..], [ClientShellAction::Endpoint { request, .. }]
-                if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+                if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                     if params.anchor.col == 6 && params.cursor.col == 10))
             );
             let copied = word_row_reply(&mut state, &word_read_id(&actions), "bravo");
@@ -466,7 +478,7 @@ fn word_read_id(actions: &[ClientShellAction]) -> String {
             ClientShellAction::Endpoint { request, .. }
                 if matches!(
                     request.method,
-                    crate::api::schema::Method::PaneSelectionRead(_)
+                    crate::client::ui_action::FrontendCommand::PaneSelectionRead(_)
                 ) =>
             {
                 Some(request.id.clone())
@@ -481,7 +493,7 @@ fn word_row_reply(state: &mut ClientShellState, id: &str, text: &str) -> Vec<Cli
         .handle_endpoint_result(
             "boot-1",
             id,
-            Ok(crate::api::schema::ResponseResult::PaneSelection {
+            Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
                 pane_id: "pane_1".into(),
                 text: text.into(),
             }),
@@ -495,7 +507,7 @@ fn start_word_drag(state: &mut ClientShellState) -> String {
     assert!(state.selection.is_none(), "plain clicks must not select");
     let second = word_drag_mouse(state, MouseEventKind::Down(MouseButton::Left), 0, 8);
     assert!(second.actions.iter().any(|action| matches!(action, ClientShellAction::Endpoint { request, .. }
-        if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+        if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
             if params.anchor.col == 0 && params.cursor.col == state.hits.panes[0].inner_rect.width - 1))));
     word_read_id(&second.actions)
 }
@@ -524,7 +536,10 @@ fn double_click_drag_selects_whole_words_in_both_directions() {
             .actions
             .is_empty()
     );
-    assert!(state.selection.as_ref().unwrap().is_finalized());
+    assert!(state
+        .selection
+        .as_ref()
+        .is_some_and(|selection| { selection.is_visible() && !selection.is_in_progress() }));
 }
 
 #[test]
@@ -560,13 +575,13 @@ fn double_click_drag_waits_for_latest_row_before_copying() {
         };
         assert!(
             matches!(&final_read[..], [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                 if params.anchor.row == 2 && params.cursor.row == 2))
         );
         let copy = word_row_reply(&mut state, &word_read_id(&final_read), "golf hotel india");
         assert!(
             matches!(&copy[..], [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                 if params.anchor == crate::api::schema::PaneTextPoint { row: 0, col: 6 }
                     && params.cursor == crate::api::schema::PaneTextPoint { row: 2, col: 9 }))
         );
@@ -758,7 +773,10 @@ fn double_click_drag_autoscroll_keeps_absolute_word_anchor() {
         ((4, 11), (5, 10))
     );
     word_drag_mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 0, 14);
-    assert!(state.selection.as_ref().unwrap().is_finalized());
+    assert!(state
+        .selection
+        .as_ref()
+        .is_some_and(|selection| { selection.is_visible() && !selection.is_in_progress() }));
     assert!(state.selection_autoscroll.is_none());
 }
 
@@ -770,7 +788,7 @@ fn pane_content_updates_preserve_live_ranges_until_geometry_or_screen_changes() 
         let mut pane_surface = surface();
         pane_surface.surface_revision = surface_revision;
         pane_surface.panes[0].content_revision = content_revision;
-        pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+        pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
             offset_from_bottom: 0,
             max_offset_from_bottom: 11,
             viewport_rows: 2,
@@ -877,7 +895,7 @@ fn pane_mouse_input_keeps_stable_target_and_endpoint_encoding() {
         row: pane.inner_rect.y + 1,
         modifiers: KeyModifiers::ALT,
     })]);
-    let [ClientMessage::ClientShellPaneInput { pane_id, events }] = &click.requests[..] else {
+    let [UiRequest::PaneInput { pane_id, events }] = &click.requests[..] else {
         panic!("pane application click should use targeted canonical input");
     };
     assert_eq!(pane_id, "pane_1");
@@ -910,7 +928,7 @@ fn pane_mouse_input_keeps_stable_target_and_endpoint_encoding() {
         })]);
     assert!(matches!(
         &release.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1"
                 && matches!(
                     &events[..],
@@ -946,7 +964,7 @@ fn pane_pixel_mouse_preserves_pane_relative_pixel_coordinates() {
     let outcome = state.handle_pixel_mouse(report.as_bytes(), geometry);
     assert!(matches!(
         &outcome.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1"
                 && matches!(
                     &events[..],
@@ -964,8 +982,8 @@ fn pane_pixel_mouse_preserves_pane_relative_pixel_coordinates() {
     assert!(matches!(
         &lost.requests[..],
         [
-            ClientMessage::ClientShellPaneInput { pane_id, events },
-            ClientMessage::ClientShellFocus { focused: false }
+            UiRequest::PaneInput { pane_id, events },
+            UiRequest::Focus { focused: false }
         ] if pane_id == "pane_1" && matches!(
             &events[..],
             [ClientPaneInputEvent::Mouse {
@@ -999,7 +1017,7 @@ fn pane_owned_right_click_forwards_the_complete_gesture() {
     })]);
     assert!(matches!(
         &down.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, .. }] if pane_id == "pane_1"
+        [UiRequest::PaneInput { pane_id, .. }] if pane_id == "pane_1"
     ));
     assert!(state.overlay.is_none());
     assert!(state.pane_mouse_gesture.is_some());
@@ -1012,7 +1030,7 @@ fn pane_owned_right_click_forwards_the_complete_gesture() {
     })]);
     assert!(matches!(
         &up.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1"
                 && matches!(
                     &events[..],
@@ -1086,7 +1104,7 @@ fn tab_click_waits_for_release_and_drag_reorders_by_stable_id() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::TabMove(params)
+        crate::client::ui_action::FrontendCommand::TabMove(params)
             if params.tab_id == "tab_1" && params.insert_index == 3
     ));
 
@@ -1107,7 +1125,7 @@ fn tab_click_waits_for_release_and_drag_reorders_by_stable_id() {
     assert!(matches!(
         &click.actions[0],
         ClientShellAction::Endpoint { request, .. }
-            if matches!(&request.method, crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_2")
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::TabFocus(target) if target.tab_id == "tab_2")
     ));
 }
 
@@ -1183,7 +1201,7 @@ fn tab_wheel_switches_tabs_without_changing_overflow_scroll() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_1"
+                crate::client::ui_action::FrontendCommand::TabFocus(target) if target.tab_id == "tab_1"
             )
     ));
     assert_eq!(state.tab_scroll, 0);

@@ -668,7 +668,10 @@ mod tests {
             crossterm::event::KeyEventKind::Press,
             None,
         );
-        assert_eq!(crate::pane::test_encode_key_for_app(b"", key), b"\x1bA");
+        assert_eq!(
+            crate::pane_input::test_encode_key_for_app(b"", key),
+            b"\x1bA"
+        );
     }
 
     #[test]
@@ -682,7 +685,10 @@ mod tests {
             crossterm::event::KeyEventKind::Press,
             None,
         );
-        assert_eq!(crate::pane::test_encode_key_for_app(b"", key), b"\x1b\x06");
+        assert_eq!(
+            crate::pane_input::test_encode_key_for_app(b"", key),
+            b"\x1b\x06"
+        );
     }
 
     #[test]
@@ -958,8 +964,8 @@ mod tests {
             assert_eq!(key, layout_key, "{sequence:?}");
             for pane_mode in [&b""[..], b"\x1b[>1u", b"\x1b[>5u", b"\x1b[>31u"] {
                 assert_eq!(
-                    crate::pane::test_encode_key_for_app(pane_mode, key.clone()),
-                    crate::pane::test_encode_key_for_app(pane_mode, layout_key.clone()),
+                    crate::pane_input::test_encode_key_for_app(pane_mode, key.clone()),
+                    crate::pane_input::test_encode_key_for_app(pane_mode, layout_key.clone()),
                     "{sequence:?} {pane_mode:?}"
                 );
             }
@@ -1171,7 +1177,7 @@ mod tests {
     #[test]
     fn legacy_lf_roundtrips_as_lf() {
         let key = parse_terminal_key_sequence("\n").unwrap();
-        assert_eq!(crate::pane::test_encode_key_for_app(b"", key), b"\n");
+        assert_eq!(crate::pane_input::test_encode_key_for_app(b"", key), b"\n");
     }
 
     #[test]

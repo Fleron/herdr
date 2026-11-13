@@ -570,60 +570,7 @@ fn client_popup_size(size: crate::popup_size::PopupSize) -> protocol::ClientShel
     }
 }
 
-fn split_hit_rect(
-    split: &crate::layout::SplitBorder,
-    pane_borders: bool,
-    pane_gaps: bool,
-    pane_frames: &[Rect],
-) -> Option<Rect> {
-    let hit = match (split.direction, pane_borders, pane_gaps) {
-        (ratatui::layout::Direction::Horizontal, true, false) => {
-            Rect::new(split.pos, split.area.y, 1, split.area.height)
-        }
-        (ratatui::layout::Direction::Horizontal, true, true) => {
-            let start = split.pos.saturating_sub(1);
-            Rect::new(
-                start,
-                split.area.y,
-                split.pos.saturating_sub(start).saturating_add(1),
-                split.area.height,
-            )
-        }
-        (ratatui::layout::Direction::Horizontal, false, true) => Rect::new(
-            split.pos.checked_sub(1)?,
-            split.area.y,
-            1,
-            split.area.height,
-        ),
-        (ratatui::layout::Direction::Vertical, true, false) => {
-            Rect::new(split.area.x, split.pos, split.area.width, 1)
-        }
-        (ratatui::layout::Direction::Vertical, true, true) => {
-            let start = split.pos.saturating_sub(1);
-            Rect::new(
-                split.area.x,
-                start,
-                split.area.width,
-                split.pos.saturating_sub(start).saturating_add(1),
-            )
-        }
-        (ratatui::layout::Direction::Vertical, false, true) => {
-            Rect::new(split.area.x, split.pos.checked_sub(1)?, split.area.width, 1)
-        }
-        (_, false, false) => return None,
-    };
-    if !pane_borders
-        && pane_frames.iter().any(|pane| {
-            hit.x < pane.right()
-                && hit.right() > pane.x
-                && hit.y < pane.bottom()
-                && hit.bottom() > pane.y
-        })
-    {
-        return None;
-    }
-    Some(hit)
-}
+use crate::client::ui::panes::split_hit_rect;
 
 #[cfg(test)]
 mod tests {

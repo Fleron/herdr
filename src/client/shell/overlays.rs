@@ -14,23 +14,25 @@ pub(crate) struct OverlayRender {
     pub(crate) navigator_search: Rect,
     pub(crate) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(crate) navigator_scrollbar: Rect,
-    pub(crate) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(crate) navigator_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
+    pub(crate) core_terminal_search: Rect,
+    pub(crate) core_terminal_rows: Vec<(Rect, usize)>,
     pub(crate) worktree_search: Rect,
     pub(crate) worktree_rows: Vec<(Rect, usize)>,
     pub(crate) help_popup: Rect,
     pub(crate) help_scrollbar: Rect,
-    pub(crate) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(crate) help_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(crate) help_max_scroll: usize,
     pub(crate) settings_popup: Rect,
     pub(crate) settings_tabs: Vec<(Rect, ClientSettingsSection)>,
     pub(crate) settings_choices: Vec<(Rect, usize)>,
     pub(crate) product_announcement_scrollbar: Rect,
-    pub(crate) product_announcement_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(crate) product_announcement_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(crate) product_announcement_max_scroll: usize,
     pub(crate) release_notes_scrollbar: Rect,
-    pub(crate) release_notes_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(crate) release_notes_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(crate) release_notes_max_scroll: usize,
-    pub(crate) cursor: Option<crate::protocol::CursorState>,
+    pub(crate) cursor: Option<crate::client::frame::CursorState>,
 }
 
 pub(crate) fn render_client_overlay(
@@ -62,7 +64,13 @@ pub(crate) fn render_client_overlay(
             render_release_notes_overlay(b, v, &s.update_install_command, p)
         }
         ClientShellOverlay::Rename(v) => render_rename_overlay(b, v, p),
-        ClientShellOverlay::ConfirmClose(v) => render_confirm_close_overlay(b, v, p),
+        ClientShellOverlay::ConfirmClose(v) => {
+            render_confirmation_overlay(b, &v.title, &v.detail, p)
+        }
+        ClientShellOverlay::ConfirmRuntime(v) => {
+            render_confirmation_overlay(b, &v.title, &v.detail, p)
+        }
+        ClientShellOverlay::CoreTerminals(v) => render_core_terminal_picker_overlay(b, v, p),
         ClientShellOverlay::Help(v) => render_help_overlay(b, v, k, p),
         ClientShellOverlay::Navigator(v) => {
             render_navigator_overlay(b, v, endpoints, active_endpoint_id, p)
@@ -90,7 +98,7 @@ pub(crate) fn render_global_menu(
     snapshot: &ClientShellSnapshot,
     palette: &Palette,
 ) -> Option<OverlayRender> {
-    let items = super::super::global_menu::global_menu_items(snapshot);
+    let items = super::super::global_menu::global_menu_items(snapshot, menu.stop_target.is_some());
     let screen = buffer.area;
     let width = items
         .iter()
@@ -115,8 +123,11 @@ pub(crate) fn render_global_menu(
     let rect = Rect::new(x, y, width, height);
     let inner = panel(buffer, rect, palette.accent, palette.panel_bg)?;
     let mut rows = Vec::new();
-    for (index, (label, action)) in items.iter().enumerate() {
-        let row_y = inner.y.saturating_add(index as u16);
+    let start = menu
+        .highlighted
+        .saturating_sub(usize::from(inner.height.saturating_sub(1)));
+    for (offset, (index, (label, action))) in items.iter().enumerate().skip(start).enumerate() {
+        let row_y = inner.y.saturating_add(offset as u16);
         if row_y >= inner.bottom() {
             break;
         }
@@ -307,14 +318,14 @@ fn contrast(p: &Palette) -> ratatui::style::Color {
 }
 fn render_release_notes_overlay(
     b: &mut Buffer,
-    notes: &crate::app::state::ReleaseNotesState,
+    notes: &crate::client::ui_state::ReleaseNotesState,
     install_command: &str,
     p: &Palette,
 ) -> Option<OverlayRender> {
     let outer = popup(
         b.area,
-        crate::ui::RELEASE_NOTES_MODAL_SIZE.0,
-        crate::ui::RELEASE_NOTES_MODAL_SIZE.1,
+        crate::client::ui::RELEASE_NOTES_MODAL_SIZE.0,
+        crate::client::ui::RELEASE_NOTES_MODAL_SIZE.1,
     )?;
     let inner = panel(b, outer, p.accent, p.panel_bg)?;
     if inner.height < 8 || inner.width < 20 {
@@ -324,7 +335,7 @@ fn render_release_notes_overlay(
         });
     }
 
-    let stack = crate::ui::modal_stack_areas(inner, 2, 1, 0, 1);
+    let stack = crate::client::ui::modal_stack_areas(inner, 2, 1, 0, 1);
     let title_area = Rect::new(
         stack.header.x.saturating_add(1),
         stack.header.y,
@@ -360,7 +371,7 @@ fn render_release_notes_overlay(
         },
         base.fg(p.overlay1),
     );
-    let close = crate::ui::release_notes_close_button_rect(Rect::new(
+    let close = crate::client::ui::release_notes_close_button_rect(Rect::new(
         stack.header.x,
         stack.header.y,
         stack.header.width,
@@ -378,11 +389,11 @@ fn render_release_notes_overlay(
     );
 
     let body = stack.content;
-    let lines = crate::ui::release_notes_display_lines(notes, install_command, p);
-    let metrics = crate::ui::release_notes_scroll_metrics(notes, install_command, body, p);
+    let lines = crate::client::ui::release_notes_display_lines(notes, install_command, p);
+    let metrics = crate::client::ui::release_notes_scroll_metrics(notes, install_command, body, p);
     let max_scroll = metrics.max_offset_from_bottom;
     let scroll = usize::from(notes.scroll).min(max_scroll);
-    let track = crate::ui::release_notes_scrollbar_rect(body, metrics);
+    let track = crate::client::ui::release_notes_scrollbar_rect(body, metrics);
     let text_area = track
         .map(|_| Rect::new(body.x, body.y, body.width.saturating_sub(1), body.height))
         .unwrap_or(body);
@@ -393,7 +404,7 @@ fn render_release_notes_overlay(
     .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
     ratatui::widgets::Widget::render(paragraph, text_area, b);
     if let Some(track) = track {
-        crate::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
+        crate::client::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
     }
 
     if let Some(footer_area) = stack.footer {
@@ -423,13 +434,13 @@ fn render_release_notes_overlay(
 
 fn render_product_announcement_overlay(
     b: &mut Buffer,
-    announcement: &crate::app::state::ProductAnnouncementState,
+    announcement: &crate::client::ui_state::ProductAnnouncementState,
     p: &Palette,
 ) -> Option<OverlayRender> {
     let outer = popup(
         b.area,
-        crate::ui::PRODUCT_ANNOUNCEMENT_MODAL_SIZE.0,
-        crate::ui::PRODUCT_ANNOUNCEMENT_MODAL_SIZE.1,
+        crate::client::ui::PRODUCT_ANNOUNCEMENT_MODAL_SIZE.0,
+        crate::client::ui::PRODUCT_ANNOUNCEMENT_MODAL_SIZE.1,
     )?;
     let inner = panel(b, outer, p.accent, p.panel_bg)?;
     if inner.height < 8 || inner.width < 20 {
@@ -439,7 +450,7 @@ fn render_product_announcement_overlay(
         });
     }
 
-    let stack = crate::ui::modal_stack_areas(inner, 2, 1, 0, 1);
+    let stack = crate::client::ui::modal_stack_areas(inner, 2, 1, 0, 1);
     let title_area = Rect::new(
         stack.header.x.saturating_add(1),
         stack.header.y,
@@ -476,7 +487,7 @@ fn render_product_announcement_overlay(
         &format!("{subtitle} · v{}", announcement.version),
         base.fg(p.overlay1),
     );
-    let close = crate::ui::release_notes_close_button_rect(Rect::new(
+    let close = crate::client::ui::release_notes_close_button_rect(Rect::new(
         stack.header.x,
         stack.header.y,
         stack.header.width,
@@ -494,11 +505,11 @@ fn render_product_announcement_overlay(
     );
 
     let body = stack.content;
-    let lines = crate::ui::product_announcement_display_lines(announcement, p);
-    let metrics = crate::ui::product_announcement_scroll_metrics(announcement, body, p);
+    let lines = crate::client::ui::product_announcement_display_lines(announcement, p);
+    let metrics = crate::client::ui::product_announcement_scroll_metrics(announcement, body, p);
     let max_scroll = metrics.max_offset_from_bottom;
     let scroll = usize::from(announcement.scroll).min(max_scroll);
-    let track = crate::ui::release_notes_scrollbar_rect(body, metrics);
+    let track = crate::client::ui::release_notes_scrollbar_rect(body, metrics);
     let text_area = track
         .map(|_| Rect::new(body.x, body.y, body.width.saturating_sub(1), body.height))
         .unwrap_or(body);
@@ -509,7 +520,7 @@ fn render_product_announcement_overlay(
     .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
     ratatui::widgets::Widget::render(paragraph, text_area, b);
     if let Some(track) = track {
-        crate::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
+        crate::client::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
     }
 
     if let Some(footer_area) = stack.footer {
@@ -545,9 +556,9 @@ fn render_onboarding_overlay(
     let prefix = k.primary_prefix_label();
     let hint_width = display_width("  ")
         + display_width(&prefix)
-        + display_width(crate::ui::ONBOARDING_PREFIX_SUFFIX)
-        + display_width(crate::ui::ONBOARDING_HELP_LABEL)
-        + display_width(crate::ui::ONBOARDING_HELP_SUFFIX);
+        + display_width(crate::client::ui::ONBOARDING_PREFIX_SUFFIX)
+        + display_width(crate::client::ui::ONBOARDING_HELP_LABEL)
+        + display_width(crate::client::ui::ONBOARDING_HELP_SUFFIX);
     let outer = popup_with_width_cap(b.area, (hint_width + 5).max(64), 16, 3)?;
     let inner = panel(b, outer, p.accent, p.panel_bg)?;
     if inner.height < 11 {
@@ -556,7 +567,7 @@ fn render_onboarding_overlay(
             ..OverlayRender::default()
         });
     }
-    let stack = crate::ui::modal_stack_areas(inner, 2, 0, 1, 1);
+    let stack = crate::client::ui::modal_stack_areas(inner, 2, 0, 1, 1);
     let base = Style::default()
         .bg(p.panel_bg)
         .remove_modifier(Modifier::DIM);
@@ -570,7 +581,7 @@ fn render_onboarding_overlay(
         stack.header.x,
         stack.header.y,
         stack.header.width,
-        crate::ui::ONBOARDING_TITLE,
+        crate::client::ui::ONBOARDING_TITLE,
         title,
     );
     put_text(
@@ -578,12 +589,12 @@ fn render_onboarding_overlay(
         stack.header.x,
         stack.header.y.saturating_add(1),
         stack.header.width,
-        crate::ui::ONBOARDING_SUBTITLE,
+        crate::client::ui::ONBOARDING_SUBTITLE,
         muted,
     );
 
     let content = stack.content;
-    for (offset, line) in crate::ui::ONBOARDING_DESCRIPTION.iter().enumerate() {
+    for (offset, line) in crate::client::ui::ONBOARDING_DESCRIPTION.iter().enumerate() {
         put_text(
             b,
             content.x,
@@ -599,9 +610,9 @@ fn render_onboarding_overlay(
     for (value, style) in [
         ("  ", base),
         (prefix.as_str(), accent),
-        (crate::ui::ONBOARDING_PREFIX_SUFFIX, text),
-        (crate::ui::ONBOARDING_HELP_LABEL, accent),
-        (crate::ui::ONBOARDING_HELP_SUFFIX, text),
+        (crate::client::ui::ONBOARDING_PREFIX_SUFFIX, text),
+        (crate::client::ui::ONBOARDING_HELP_LABEL, accent),
+        (crate::client::ui::ONBOARDING_HELP_SUFFIX, text),
     ] {
         let width = display_width(value);
         put_text(
@@ -619,11 +630,12 @@ fn render_onboarding_overlay(
         content.x,
         content.y.saturating_add(5),
         content.width,
-        crate::ui::ONBOARDING_NEXT,
+        crate::client::ui::ONBOARDING_NEXT,
         text,
     );
 
-    let primary = crate::ui::onboarding_welcome_continue_rect(stack.actions.unwrap_or_default());
+    let primary =
+        crate::client::ui::onboarding_welcome_continue_rect(stack.actions.unwrap_or_default());
     button(
         b,
         primary,
@@ -808,7 +820,7 @@ fn render_navigator_overlay(
         .max(selected.saturating_sub(body.height.saturating_sub(1) as usize))
         .min(selected)
         .min(max);
-    let metrics = crate::pane::ScrollMetrics {
+    let metrics = crate::client::ui_state::ScrollMetrics {
         offset_from_bottom: max.saturating_sub(scroll),
         max_offset_from_bottom: max,
         viewport_rows: usize::from(body.height),
@@ -1001,7 +1013,7 @@ fn render_navigator_overlay(
         }
     }
     if let Some(track) = scrollbar {
-        crate::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
+        crate::client::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
     }
     if let Some(r) = rows.get(selected) {
         put_text(
@@ -1197,7 +1209,7 @@ fn render_help_overlay(
     let total_rows = wrapped_rows(text_area.width);
     let max_scroll = total_rows.saturating_sub(viewport_rows);
     let scroll = h.scroll.min(max_scroll);
-    let metrics = crate::pane::ScrollMetrics {
+    let metrics = crate::client::ui_state::ScrollMetrics {
         offset_from_bottom: max_scroll.saturating_sub(scroll),
         max_offset_from_bottom: max_scroll,
         viewport_rows,
@@ -1216,7 +1228,7 @@ fn render_help_overlay(
         b,
     );
     if let Some(track) = scrollbar {
-        if let Some(thumb) = crate::ui::scrollbar_thumb(metrics, track) {
+        if let Some(thumb) = crate::client::ui::scrollbar_thumb(metrics, track) {
             for y in track.y..track.bottom() {
                 b[(track.x, y)]
                     .set_symbol("▐")
@@ -1253,9 +1265,10 @@ fn render_help_overlay(
         ..OverlayRender::default()
     })
 }
-fn render_confirm_close_overlay(
+fn render_confirmation_overlay(
     b: &mut Buffer,
-    c: &ClientConfirmCloseOverlay,
+    title: &str,
+    detail: &str,
     p: &Palette,
 ) -> Option<OverlayRender> {
     let q = popup(b.area, 64, 6)?;
@@ -1265,7 +1278,7 @@ fn render_confirm_close_overlay(
         i.x,
         i.y,
         i.width,
-        &format!(" {}", c.title),
+        &format!(" {title}"),
         Style::default()
             .fg(p.red)
             .bg(p.panel_bg)
@@ -1276,7 +1289,7 @@ fn render_confirm_close_overlay(
         i.x,
         i.y + 1,
         i.width,
-        &format!(" {}", c.detail),
+        &format!(" {detail}"),
         Style::default().fg(p.text).bg(p.panel_bg),
     );
     let rs = row(i, &[13, 12], 2, 3);
@@ -1315,3 +1328,5 @@ fn render_confirm_close_overlay(
         ..OverlayRender::default()
     })
 }
+
+include!("core_terminals.rs");

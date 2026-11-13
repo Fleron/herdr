@@ -95,9 +95,9 @@ fn shell_and_registry_with_source_failure(source_fail_after_write: bool) -> Test
     };
     let target = ClientEndpointId::Ssh(profile.id.clone());
     shell.set_endpoint_catalog(&[profile]);
-    shell.set_snapshot(Box::new(test_snapshot("local-boot", 1)));
+    shell.set_snapshot(Box::new(test_snapshot("local-boot", 1).into()));
     shell.set_endpoint_status(&target, ClientEndpointStatus::Online);
-    shell.set_endpoint_snapshot(&target, Box::new(test_snapshot("remote-boot", 1)));
+    shell.set_endpoint_snapshot(&target, Box::new(test_snapshot("remote-boot", 1).into()));
 
     let local_sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let remote_sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -290,7 +290,7 @@ fn active_source_requires_metadata_from_its_current_connection_generation() {
     shell.set_endpoint_snapshot_for_generation(
         &ClientEndpointId::Local,
         99,
-        Box::new(test_snapshot("stale-local-boot", 1)),
+        Box::new(test_snapshot("stale-local-boot", 1).into()),
     );
 
     let result = PendingEndpointActivation::begin(
@@ -885,7 +885,7 @@ fn rapid_a_to_b_to_a_restores_source_before_a_fresh_latest_epoch() {
         &mut endpoints,
     );
     let local_snapshot = test_snapshot("local-boot", 2);
-    shell.set_snapshot(Box::new(local_snapshot.clone()));
+    shell.set_snapshot(Box::new(local_snapshot.clone().into()));
     assert_eq!(
         activation.receive_snapshot(&ClientEndpointId::Local, 1, &local_snapshot),
         SurfaceActivationProgress::Pending
@@ -916,7 +916,7 @@ fn rapid_a_to_b_to_a_restores_source_before_a_fresh_latest_epoch() {
     shell.set_endpoint_snapshot_for_generation(
         &ClientEndpointId::Local,
         1,
-        Box::new(sync_snapshot.clone()),
+        Box::new(sync_snapshot.clone().into()),
     );
     let _ = activation.receive_snapshot(&ClientEndpointId::Local, 1, &sync_snapshot);
     assert_eq!(
@@ -1052,7 +1052,7 @@ fn local_escape(source_state: &str) {
     shell.set_endpoint_snapshot_for_generation(
         &ClientEndpointId::Local,
         1,
-        Box::new(snapshot.clone()),
+        Box::new(snapshot.clone().into()),
     );
     assert_eq!(
         activation.receive_snapshot(&ClientEndpointId::Local, 1, &snapshot),
@@ -1084,7 +1084,7 @@ fn local_escape(source_state: &str) {
     shell.set_endpoint_snapshot_for_generation(
         &ClientEndpointId::Local,
         1,
-        Box::new(sync_snapshot.clone()),
+        Box::new(sync_snapshot.clone().into()),
     );
     let _ = activation.receive_snapshot(&ClientEndpointId::Local, 1, &sync_snapshot);
     assert_eq!(
@@ -1240,7 +1240,7 @@ fn local_selection_waits_for_fresh_metadata_without_abandoning_remote() {
         shell.set_endpoint_snapshot_for_generation(
             &ClientEndpointId::Local,
             1,
-            Box::new(test_snapshot("local-boot", 1)),
+            Box::new(test_snapshot("local-boot", 1).into()),
         );
         let mut state = ClientState::test_new();
         state.shell = Some(shell);
@@ -1318,7 +1318,7 @@ fn local_selection_waits_for_fresh_metadata_without_abandoning_remote() {
             .cache_endpoint_snapshot_inactive_for_generation(
                 &ClientEndpointId::Local,
                 2,
-                Box::new(test_snapshot("local-boot", 1)),
+                Box::new(test_snapshot("local-boot", 1).into()),
             );
         let event = take_ready_local_activation(&mut state, &endpoints).unwrap();
         let ClientLoopEvent::ActivateEndpoint {
@@ -1446,7 +1446,7 @@ fn notification_successor_replay_rejects_a_restarted_destination() {
             .shell
             .as_mut()
             .unwrap()
-            .set_snapshot(Box::new(snapshot));
+            .set_snapshot(Box::new(snapshot.into()));
         // Model restoration completing before the retained intent is replayed.
         endpoints.set_surface_active(&ClientEndpointId::Local, true);
         endpoints.unfreeze_input();
@@ -1559,7 +1559,7 @@ fn notification_click_on_remote_source_supersedes_a_handoff() {
         focused: false,
         right_click_passthrough: false,
     });
-    shell.set_endpoint_snapshot(&remote, Box::new(snapshot));
+    shell.set_endpoint_snapshot(&remote, Box::new(snapshot.into()));
     endpoints.set_surface_active(&ClientEndpointId::Local, false);
     endpoints.set_surface_active(&remote, true);
     assert!(endpoints.set_active(&remote));

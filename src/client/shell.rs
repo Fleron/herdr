@@ -1,79 +1,115 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[path = "shell/actions.rs"]
 mod actions;
+#[path = "shell/agent_sidebar.rs"]
 mod agent_sidebar;
+#[path = "shell/aggregate_navigation.rs"]
 mod aggregate_navigation;
+#[path = "shell/machine_diagnostics.rs"]
 mod machine_diagnostics;
+#[path = "shell/workspace_navigation.rs"]
 mod workspace_navigation;
 use workspace_navigation::{PendingWorkspaceHighlight, WorkspaceNavigationTarget};
+#[path = "shell/checkouts.rs"]
+mod checkouts;
+#[path = "shell/composition.rs"]
 mod composition;
+#[path = "shell/config.rs"]
 mod config;
+#[path = "shell/context_menu.rs"]
 mod context_menu;
+#[path = "shell/copy_mode.rs"]
 mod copy_mode;
+#[path = "shell/endpoint_agent_state.rs"]
 mod endpoint_agent_state;
+#[path = "shell/endpoint_agents.rs"]
 mod endpoint_agents;
+#[path = "shell/endpoint_navigation.rs"]
 mod endpoint_navigation;
+#[path = "shell/endpoint_notices.rs"]
 mod endpoint_notices;
+#[path = "shell/endpoint_sidebar.rs"]
 mod endpoint_sidebar;
+#[path = "shell/endpoints.rs"]
 mod endpoints;
-pub(super) use endpoints::*;
+pub(crate) use endpoints::*;
+#[path = "shell/global_menu.rs"]
 mod global_menu;
+#[path = "shell/graphics.rs"]
 mod graphics;
+#[path = "shell/input.rs"]
 mod input;
+#[path = "shell/input_source.rs"]
 mod input_source;
+#[path = "shell/link_hover.rs"]
 mod link_hover;
+#[path = "shell/mobile.rs"]
 mod mobile;
+#[path = "shell/mouse.rs"]
 mod mouse;
+#[path = "shell/notification_policy.rs"]
 mod notification_policy;
+#[path = "shell/notifications.rs"]
 mod notifications;
+#[path = "shell/overlay_input.rs"]
 mod overlay_input;
+#[path = "shell/preferences.rs"]
 mod preferences;
+#[path = "shell/render.rs"]
 mod render;
+#[path = "shell/scroll.rs"]
 mod scroll;
+#[path = "shell/settings.rs"]
 mod settings;
+#[path = "shell/state.rs"]
 mod state;
-mod surface_patch;
+legacy_shell_extensions! {
+    #[path = "shell/surface_patch.rs"]
+    pub(super) mod surface_patch;
+}
+#[path = "shell/text_editor.rs"]
 mod text_editor;
+#[path = "shell/word_selection.rs"]
 mod word_selection;
+#[path = "shell/worktrees.rs"]
 mod worktrees;
 use text_editor::TextEditor;
 use word_selection::ClientWordSelection;
 
 pub(in crate::client::shell) use render::sidebar;
 pub(crate) use state::*;
-#[cfg(test)]
-pub(super) use surface_patch::apply_composed_surface_patch;
-pub(super) use surface_patch::{ClientComposedSurfacePatch, ClientPaneSurfacePatchOutcome};
 
 use crossterm::event::KeyCode;
-#[cfg(test)]
-use crossterm::event::{KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
-use super::endpoint::{ClientEndpointId, ClientEndpointStatus, SavedSshEndpoint};
-use crate::app::state::Palette;
+use super::endpoint::{ClientEndpointId, ClientEndpointStatus};
+use crate::client::frame::{
+    ClientMousePosition, ClientPaneInputEvent, ClientSurfaceSize, FrameData, SemanticNotification,
+    SemanticNotificationKind, SemanticNotificationSound,
+};
 use crate::config::{
     Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,
     TabBarPositionConfig,
 };
-use crate::protocol::{
-    ClientMessage, ClientMousePosition, ClientPaneInputEvent, ClientShellSnapshot, ClientShellTab,
-    ClientShellWorkspace, ClientSurfaceSize, FrameData, PaneSurfaceFrame, SemanticNotification,
-    SemanticNotificationKind, SemanticNotificationSound,
-};
-#[cfg(test)]
-use crate::raw_input::RawInputEvent;
+use crate::palette::Palette;
 
-fn target_event_message(target: ClientInputTarget, event: ClientPaneInputEvent) -> ClientMessage {
+use super::ui_action::UiRequest;
+use super::ui_model::{
+    ClientShellAvailableCheckout, ClientShellSnapshot, ClientShellTab, ClientShellWorkspace,
+    PaneSurfaceFrame,
+};
+
+fn target_event_message(target: ClientInputTarget, event: ClientPaneInputEvent) -> UiRequest {
     match target {
-        ClientInputTarget::Pane(pane_id) => ClientMessage::ClientShellPaneInput {
+        ClientInputTarget::Pane(pane_id) => UiRequest::PaneInput {
             pane_id,
             events: vec![event],
         },
-        ClientInputTarget::Popup(terminal_id) => ClientMessage::ClientShellPopupInput {
+        ClientInputTarget::Popup(terminal_id) => UiRequest::PopupInput {
             terminal_id,
             events: vec![event],
         },
@@ -87,7 +123,7 @@ fn push_target_event(
 ) {
     match target {
         ClientInputTarget::Pane(pane_id) => {
-            if let Some(ClientMessage::ClientShellPaneInput {
+            if let Some(UiRequest::PaneInput {
                 pane_id: pending_pane,
                 events,
             }) = outcome.requests.last_mut()
@@ -103,7 +139,7 @@ fn push_target_event(
             ));
         }
         ClientInputTarget::Popup(terminal_id) => {
-            if let Some(ClientMessage::ClientShellPopupInput {
+            if let Some(UiRequest::PopupInput {
                 terminal_id: pending_terminal,
                 events,
             }) = outcome.requests.last_mut()
@@ -159,8 +195,8 @@ fn pane_surface_topology_signature(surface: &PaneSurfaceFrame) -> u64 {
         write(
             &mut hash,
             &[match split.direction {
-                crate::protocol::PaneSurfaceSplitDirection::Horizontal => 0,
-                crate::protocol::PaneSurfaceSplitDirection::Vertical => 1,
+                crate::client::ui_model::PaneSurfaceSplitDirection::Horizontal => 0,
+                crate::client::ui_model::PaneSurfaceSplitDirection::Vertical => 1,
             }],
         );
         write(
@@ -176,10 +212,10 @@ fn pane_surface_topology_signature(surface: &PaneSurfaceFrame) -> u64 {
 }
 
 fn status_icon(
-    status: crate::api::schema::AgentStatus,
+    status: crate::client::ui_domain::AgentStatus,
     style: crate::config::StatusIndicatorStyle,
 ) -> &'static str {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     use crate::config::StatusIndicatorStyle;
     match (style, status) {
         (
@@ -196,12 +232,12 @@ fn status_icon(
     }
 }
 
-fn status_dot(status: crate::api::schema::AgentStatus) -> &'static str {
+fn status_dot(status: crate::client::ui_domain::AgentStatus) -> &'static str {
     status_icon(status, crate::config::StatusIndicatorStyle::Dots)
 }
 
-fn status_priority(status: crate::api::schema::AgentStatus) -> u8 {
-    use crate::api::schema::AgentStatus;
+fn status_priority(status: crate::client::ui_domain::AgentStatus) -> u8 {
+    use crate::client::ui_domain::AgentStatus;
     match status {
         AgentStatus::Blocked => 4,
         AgentStatus::Done => 3,
@@ -211,8 +247,8 @@ fn status_priority(status: crate::api::schema::AgentStatus) -> u8 {
     }
 }
 
-fn status_text(status: crate::api::schema::AgentStatus) -> &'static str {
-    use crate::api::schema::AgentStatus;
+fn status_text(status: crate::client::ui_domain::AgentStatus) -> &'static str {
+    use crate::client::ui_domain::AgentStatus;
     match status {
         AgentStatus::Working => "working",
         AgentStatus::Blocked => "blocked",
@@ -223,10 +259,10 @@ fn status_text(status: crate::api::schema::AgentStatus) -> &'static str {
 }
 
 fn status_color(
-    status: crate::api::schema::AgentStatus,
+    status: crate::client::ui_domain::AgentStatus,
     palette: &Palette,
 ) -> ratatui::style::Color {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     match status {
         AgentStatus::Working => palette.yellow,
         AgentStatus::Blocked => palette.red,
@@ -269,15 +305,29 @@ fn blit_pane_surface(target: &mut FrameData, source: &FrameData, area: Rect) {
     }
 
     target.cursor = source.cursor.as_ref().and_then(|cursor| {
-        (cursor.x < copy_width && cursor.y < copy_height).then(|| crate::protocol::CursorState {
-            x: area.x + cursor.x,
-            y: area.y + cursor.y,
-            visible: cursor.visible,
-            shape: cursor.shape,
+        (cursor.x < copy_width && cursor.y < copy_height).then(|| {
+            crate::client::frame::CursorState {
+                x: area.x + cursor.x,
+                y: area.y + cursor.y,
+                visible: cursor.visible,
+                shape: cursor.shape,
+            }
         })
     });
     target.graphics.clear();
 }
 
+legacy_shell_characterization_tests!("shell/tests/mod.rs");
+
 #[cfg(test)]
-mod tests;
+#[path = "shell/test_support.rs"]
+pub(crate) mod test_support;
+
+#[cfg(test)]
+#[path = "shell/core_tests.rs"]
+mod core_tests;
+
+core_shell_extensions! {
+    #[path = "shell/core_adapter.rs"]
+    pub(crate) mod core_adapter;
+}

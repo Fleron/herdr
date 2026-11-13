@@ -4,20 +4,20 @@ use ratatui::layout::Rect;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PopupSize {
+pub enum PopupSize {
     Cells(u16),
     Percent(u8),
 }
 
 impl PopupSize {
-    pub(crate) fn resolve(self, available: u16) -> u16 {
+    pub fn resolve(self, available: u16) -> u16 {
         match self {
             Self::Cells(cells) => cells,
             Self::Percent(percent) => ((available as u32 * percent as u32) / 100) as u16,
         }
     }
 
-    pub(crate) fn parse_cli(value: &str) -> Result<Self, String> {
+    pub fn parse_cli(value: &str) -> Result<Self, String> {
         if let Some(percent) = value.strip_suffix('%') {
             let percent = percent
                 .parse::<u8>()
@@ -42,12 +42,12 @@ impl PopupSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PopupResolvedGeometry {
+pub struct PopupResolvedGeometry {
     pub outer: Rect,
     pub inner: Rect,
 }
 
-pub(crate) fn resolve_popup_geometry(
+pub fn resolve_popup_geometry(
     width: Option<PopupSize>,
     height: Option<PopupSize>,
     area: Rect,

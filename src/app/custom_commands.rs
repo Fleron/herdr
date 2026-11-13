@@ -585,7 +585,7 @@ mod tests {
 
     fn binding(action: crate::config::CustomCommandAction) -> crate::config::CustomCommandKeybind {
         crate::config::CustomCommandKeybind {
-            bindings: crate::config::ActionKeybinds::prefix("z"),
+            bindings: crate::config::ActionKeybinds::from_labels(&["prefix+z".into()]).unwrap(),
             label: "prefix+z".into(),
             command: "secret-command --token hidden".into(),
             action,

@@ -150,6 +150,7 @@ fn focused_workspace_change_reveals_new_workspace_in_full_sidebar() {
     let template = initial.workspaces[0].clone();
     initial.workspaces = (1..=12)
         .map(|number| ClientShellWorkspace {
+            new_workspace_label:"repo".into(),
             workspace_id: format!("ws_{number}"),
             number,
             label: format!("space-{number}"),
@@ -371,7 +372,7 @@ fn context_menus_capture_stable_targets_and_route_actions() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneSplit(params)
+        crate::client::ui_action::FrontendCommand::PaneSplit(params)
             if params.target_pane_id.as_deref() == Some("pane_1")
                 && params.direction == crate::api::schema::SplitDirection::Right
     ));
@@ -419,7 +420,7 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     assert!(help.actions.is_empty());
     assert!(matches!(state.overlay, Some(ClientShellOverlay::Help(_))));
 
-    state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
+    state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {stop_target:None,stop_label:None,
         highlighted: 3,
     }));
     let detach = state.handle_input_bytes(b"\r");
@@ -466,7 +467,7 @@ fn new_tab_overlay_owns_text_cursor_and_submits_public_api_request() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::TabCreate(params)
+        crate::client::ui_action::FrontendCommand::TabCreate(params)
             if params.workspace_id.as_deref() == Some("ws_1")
                 && params.label.as_deref() == Some("logs")
     ));
@@ -482,7 +483,7 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_workspace_cl
     // Exercise the server error fallback directly: last-pane keybindings now
     // confirm locally before issuing a request.
     state.push_endpoint_method(
-        crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget {
+        crate::client::ui_action::FrontendCommand::PaneClose(crate::api::schema::PaneTarget {
             pane_id: "pane_1".into(),
         }),
         &mut close,
@@ -523,7 +524,7 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_workspace_cl
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorkspaceClose(params)
+        crate::client::ui_action::FrontendCommand::WorkspaceClose(params)
             if params.workspace_id == "ws_1" && !params.close_group
     ));
 }

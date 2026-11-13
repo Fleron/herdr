@@ -323,7 +323,7 @@ fn interrupted_backups_and_writes_are_distinguishable() {
         let path = dir.0.join(name);
         let original = vec![b'a'; 32768];
         fs::write(&path, &original).unwrap();
-        let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", "platform::windows::config_backup::tests::interrupted_backups_and_writes_are_distinguishable", "--nocapture"])
+        let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", "platform::shared::windows::config_backup::tests::interrupted_backups_and_writes_are_distinguishable", "--nocapture"])
             .env(CHILD, &path).output().unwrap();
         assert_eq!(output.status.code(), Some(23), "{output:?}");
         let (complete, pending) = backup_paths(&path);

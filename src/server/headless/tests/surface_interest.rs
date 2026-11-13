@@ -565,9 +565,9 @@ async fn two_headless_servers_drive_atomic_endpoint_handoff() {
         crate::client::ClientShellConfig::from_config(&crate::config::Config::default()),
     );
     shell.set_endpoint_catalog(&[profile]);
-    shell.set_snapshot(source_snapshot);
+    shell.set_snapshot(Box::new((*source_snapshot).into()));
     shell.set_endpoint_status(&target_id, ClientEndpointStatus::Online);
-    shell.set_endpoint_snapshot(&target_id, remote_snapshot);
+    shell.set_endpoint_snapshot(&target_id, Box::new((*remote_snapshot).into()));
 
     let source_sent = Arc::new(Mutex::new(Vec::new()));
     let target_sent = Arc::new(Mutex::new(Vec::new()));
@@ -681,7 +681,7 @@ async fn two_headless_servers_drive_atomic_endpoint_handoff() {
     target_server.render_and_stream();
     let coherent_snapshot = client_shell_snapshot(&target_control);
     let snapshot_progress = activation.receive_snapshot(&target_id, 7, &coherent_snapshot);
-    shell.set_endpoint_snapshot(&target_id, coherent_snapshot);
+    shell.set_endpoint_snapshot(&target_id, Box::new((*coherent_snapshot).into()));
     assert_eq!(
         snapshot_progress,
         crate::client::endpoint::SurfaceActivationProgress::Pending
@@ -756,7 +756,7 @@ async fn two_headless_servers_drive_atomic_endpoint_handoff() {
         }
     };
     let sync_progress = activation.receive_snapshot(&target_id, 7, &sync_snapshot);
-    shell.set_endpoint_snapshot_for_generation(&target_id, 7, Box::new(sync_snapshot));
+    shell.set_endpoint_snapshot_for_generation(&target_id, 7, Box::new(sync_snapshot.into()));
     assert_eq!(
         sync_progress,
         crate::client::endpoint::SurfaceActivationProgress::Pending

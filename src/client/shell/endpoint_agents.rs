@@ -37,8 +37,10 @@ pub(super) fn render_collapsed(
                     Modifier::empty()
                 }),
         );
-        hits.endpoint_agents
-            .push((rect, row.endpoint_id, row.agent.pane_id));
+        if let Some(target) = row.target {
+            hits.endpoint_agents
+                .push((rect, row.endpoint_id, row.agent.agent_id, target));
+        }
     }
 }
 
@@ -81,8 +83,14 @@ pub(super) fn render_expanded(
                         .add_modifier(Modifier::DIM),
                 );
             }
-            hits.endpoint_agents
-                .push((rect, row.endpoint_id.clone(), row.agent.pane_id.clone()));
+            if let Some(target) = &row.target {
+                hits.endpoint_agents.push((
+                    rect,
+                    row.endpoint_id.clone(),
+                    row.agent.agent_id.clone(),
+                    target.clone(),
+                ));
+            }
         },
     );
 }
@@ -100,7 +108,7 @@ impl ClientShellState {
         let rows = agent_rows(&self.endpoints, &self.active_endpoint_id, &self.config);
         let Some(target) = rows
             .iter()
-            .position(|row| &row.endpoint_id == endpoint_id && row.agent.pane_id == pane_id)
+            .position(|row| &row.endpoint_id == endpoint_id && row.agent.agent_id == pane_id)
         else {
             return;
         };
@@ -127,6 +135,7 @@ struct EndpointAgentRow {
     machine_label: String,
     stale: bool,
     agent: super::agent_sidebar::AgentRow,
+    target: Option<ClientEndpointFocusTarget>,
 }
 
 fn agent_rows(
@@ -144,12 +153,17 @@ fn agent_rows(
                     .filter_map(|agent| {
                         super::agent_sidebar::agent_row(
                             snapshot,
-                            &agent.pane_id,
+                            &agent.agent_id,
                             config,
                             Some(&endpoint.label),
                         )
                     })
-                    .map(|agent| ((endpoint.endpoint_id.clone(), agent.pane_id.clone()), agent))
+                    .map(|agent| {
+                        (
+                            (endpoint.endpoint_id.clone(), agent.agent_id.clone()),
+                            agent,
+                        )
+                    })
                     .collect::<Vec<_>>()
             })
         })
@@ -163,13 +177,14 @@ fn agent_rows(
     )
     .into_iter()
     .filter_map(|row| {
-        let key = (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone());
+        let key = (row.endpoint.endpoint_id.clone(), row.agent.agent_id.clone());
         let mut agent = rendered_rows.remove(&key)?;
         agent.focused &= row.endpoint.endpoint_id == active_endpoint_id;
         Some(EndpointAgentRow {
             endpoint_id: row.endpoint.endpoint_id.clone(),
             machine_label: row.endpoint.label.to_owned(),
             stale: row.endpoint.stale(),
+            target: agent_focus_target(row.agent),
             agent,
         })
     })

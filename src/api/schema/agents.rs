@@ -67,16 +67,7 @@ cli_params! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct AgentViewSetParams {
-    pub source: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filter: Option<AgentViewFilter>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sort: Vec<AgentViewSort>,
-}
+pub use crate::client::ui_domain::agents::AgentViewSetParams;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
 pub struct AgentViewClearParams {
@@ -84,102 +75,26 @@ pub struct AgentViewClearParams {
     pub source: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum AgentViewFilter {
-    All {
-        filters: Vec<AgentViewFilter>,
-    },
-    Any {
-        filters: Vec<AgentViewFilter>,
-    },
-    Not {
-        filter: Box<AgentViewFilter>,
-    },
-    Eq {
-        field: AgentViewField,
-        value: AgentViewValue,
-    },
-    In {
-        field: AgentViewField,
-        values: Vec<AgentViewValue>,
-    },
-    Exists {
-        field: AgentViewField,
-    },
-}
+pub use crate::client::ui_domain::agents::AgentViewFilter;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(untagged)]
-pub enum AgentViewField {
-    Builtin(AgentViewBuiltinField),
-    Token { token: String },
-}
+pub use crate::client::ui_domain::agents::AgentViewField;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentViewBuiltinField {
-    Status,
-    WorkspaceId,
-    TabId,
-    PaneId,
-    Agent,
-    Seen,
-    StateChangeSeq,
-}
+pub use crate::client::ui_domain::agents::AgentViewBuiltinField;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(untagged)]
-pub enum AgentViewValue {
-    String(String),
-    Bool(bool),
-    Number(u64),
-    Context { context: AgentViewContext },
-}
+pub use crate::client::ui_domain::agents::AgentViewValue;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentViewContext {
-    CurrentWorkspaceId,
-    CurrentTabId,
-}
+pub use crate::client::ui_domain::agents::AgentViewContext;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct AgentViewSort {
-    pub field: AgentViewSortField,
-    #[serde(default)]
-    pub order: AgentViewSortOrder,
-}
+#[cfg(test)]
+pub use crate::client::ui_domain::agents::AgentViewSort;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(untagged)]
-pub enum AgentViewSortField {
-    Builtin(AgentViewBuiltinSortField),
-    Token { token: String },
-}
+pub use crate::client::ui_domain::agents::AgentViewSortField;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentViewBuiltinSortField {
-    WorkspaceOrder,
-    TabOrder,
-    PaneOrder,
-    Attention,
-    Status,
-    Agent,
-    Seen,
-    StateChangeSeq,
-}
+#[cfg(test)]
+pub use crate::client::ui_domain::agents::AgentViewBuiltinSortField;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentViewSortOrder {
-    #[default]
-    Asc,
-    Desc,
-}
+#[cfg(test)]
+pub use crate::client::ui_domain::agents::AgentViewSortOrder;
 
 cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -251,10 +166,4 @@ pub struct AgentInfo {
     pub revision: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct AgentSessionInfo {
-    pub source: String,
-    pub agent: String,
-    pub kind: crate::agent_resume::AgentSessionRefKind,
-    pub value: String,
-}
+pub use crate::client::ui_domain::agents::AgentSessionInfo;

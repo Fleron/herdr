@@ -1,18 +1,33 @@
+#[path = "macos/input_source.rs"]
+mod input_source;
+pub(crate) use input_source::{
+    pump_input_source_runloop, switch_to_ascii_input_source, InputSourceRestore,
+};
+
+#[path = "macos/client.rs"]
+mod client;
+#[cfg(test)]
+use client::{
+    build_terminal_notifier_command, show_desktop_notification_with_command,
+    show_terminal_notifier_notification_with_options, terminal_bundle_identifier_from_env,
+};
+pub use client::{
+    clipboard_text_matches, open_url, read_clipboard_image, read_clipboard_text,
+    show_desktop_notification, write_clipboard,
+};
+pub(crate) use client::{should_draw_host_cursor_by_default, should_query_host_terminal_palette};
+
 use std::ffi::OsStr;
 use std::io::Write;
 use std::os::fd::RawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::ptr::NonNull;
-use std::sync::OnceLock;
+#[cfg(test)]
+use std::process::Command;
 
 pub(super) const REMOTE_BRIDGE_CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
 
-use super::{
-    read_limited_reader, ClipboardCommand, ClipboardImage, ForegroundJob, ForegroundProcess,
-    LimitedRead, Signal,
-};
+use super::{ForegroundJob, ForegroundProcess, Signal};
 
 pub(crate) use super::unix_common::{
     configure_status_command, create_remote_private_dir, create_remote_ssh_config_dir,
@@ -23,23 +38,29 @@ pub(crate) use super::unix_common::{
     ClientStreamReader, PinnedSshControlSocket, StatusCommandGuard,
 };
 
+#[path = "macos/bootstrap.rs"]
 mod bootstrap;
 pub(crate) use bootstrap::{configure_server_daemon_context, prepare_server_process};
 
+#[path = "macos/shutdown.rs"]
 mod shutdown;
 pub(crate) use shutdown::monitor_host_shutdown;
+#[path = "macos/power.rs"]
 mod power;
 pub(crate) use power::monitor_host_power;
 
+#[path = "macos/launchd_spawn.rs"]
 mod launchd_spawn;
 pub(crate) use launchd_spawn::{leave_launchd_job, spawn_launchd_job};
 
 #[cfg(test)]
+#[path = "macos/config_file_tests.rs"]
 mod config_file_tests;
 
 #[cfg(test)]
-mod input_tests;
+legacy_macos_input_tests!();
 
+#[path = "macos/input.rs"]
 mod input;
 pub(crate) use input::PtyInputGuard;
 
@@ -186,14 +207,6 @@ pub(crate) fn write_config_temporary(
 const PROC_PGRP_ONLY: u32 = 2;
 const SERVER_NOFILE_LIMIT_TARGET: libc::rlim_t = 8192;
 
-pub(crate) fn should_draw_host_cursor_by_default() -> bool {
-    false
-}
-
-pub(crate) fn should_query_host_terminal_palette() -> bool {
-    true
-}
-
 fn raw_command_argv(command: &str, flag: &str) -> Vec<std::ffi::OsString> {
     vec!["/bin/sh".into(), flag.into(), command.into()]
 }
@@ -237,148 +250,6 @@ fn shell_quote(value: &str) -> String {
     }
 
     format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-#[repr(C)]
-struct TisInputSource {
-    _private: [u8; 0],
-}
-
-type TisInputSourceRef = *const TisInputSource;
-type CfTypeRef = *const libc::c_void;
-type CfStringRef = *const libc::c_void;
-type OsStatus = libc::c_int;
-type Boolean = libc::c_uchar;
-
-#[link(name = "Carbon", kind = "framework")]
-extern "C" {
-    #[link_name = "kTISPropertyInputSourceID"]
-    static TIS_PROPERTY_INPUT_SOURCE_ID: CfStringRef;
-
-    #[link_name = "TISCopyCurrentKeyboardInputSource"]
-    fn tis_copy_current_keyboard_input_source() -> TisInputSourceRef;
-
-    #[link_name = "TISCopyCurrentASCIICapableKeyboardLayoutInputSource"]
-    fn tis_copy_current_ascii_capable_keyboard_layout_input_source() -> TisInputSourceRef;
-
-    #[link_name = "TISGetInputSourceProperty"]
-    fn tis_get_input_source_property(
-        input_source: TisInputSourceRef,
-        property_key: CfStringRef,
-    ) -> CfTypeRef;
-
-    #[link_name = "TISSelectInputSource"]
-    fn tis_select_input_source(input_source: TisInputSourceRef) -> OsStatus;
-}
-
-#[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
-    #[link_name = "CFRelease"]
-    fn cf_release(value: CfTypeRef);
-
-    #[link_name = "CFEqual"]
-    fn cf_equal(left: CfTypeRef, right: CfTypeRef) -> Boolean;
-
-    #[link_name = "kCFRunLoopDefaultMode"]
-    static CF_RUN_LOOP_DEFAULT_MODE: CfStringRef;
-
-    #[link_name = "CFRunLoopRunInMode"]
-    fn cf_run_loop_run_in_mode(
-        mode: CfStringRef,
-        seconds: f64,
-        return_after_source_handled: Boolean,
-    ) -> libc::c_int;
-}
-
-/// Pump the main thread's run loop once (non-blocking) so the process receives the
-/// `kTISNotifySelectedKeyboardInputSourceChanged` notification and refreshes the per-process cache
-/// that `TISCopyCurrentKeyboardInputSource` reads. That notification arrives only via the main
-/// thread's run loop, so a process that never runs a CFRunLoop (the headless server) reads a stale
-/// source. Must run on the main thread.
-pub(crate) fn pump_input_source_runloop() {
-    debug_assert!(
-        // SAFETY: `pthread_main_np` is always safe to call.
-        unsafe { libc::pthread_main_np() } != 0,
-        "pump_input_source_runloop must run on the main thread"
-    );
-    // SAFETY: `CFRunLoopRunInMode` is thread-safe; a 0-second call drains the ready sources and
-    // returns immediately (no blocking). `CF_RUN_LOOP_DEFAULT_MODE` is a framework-owned constant.
-    unsafe {
-        let _ = cf_run_loop_run_in_mode(CF_RUN_LOOP_DEFAULT_MODE, 0.0, 0);
-    }
-}
-
-#[derive(Debug)]
-struct RetainedInputSource(NonNull<TisInputSource>);
-
-impl RetainedInputSource {
-    /// Takes ownership of a retained reference returned by a TIS `Copy` function.
-    unsafe fn from_copy(raw: TisInputSourceRef) -> Option<Self> {
-        NonNull::new(raw as *mut TisInputSource).map(Self)
-    }
-
-    fn select(&self) -> OsStatus {
-        // SAFETY: this wrapper keeps the retained input source alive for the call.
-        unsafe { tis_select_input_source(self.0.as_ptr()) }
-    }
-
-    fn has_same_id(&self, other: &Self) -> bool {
-        // SAFETY: TIS property values stay valid while their input sources are alive;
-        // both wrappers outlive this comparison.
-        unsafe {
-            let left = tis_get_input_source_property(self.0.as_ptr(), TIS_PROPERTY_INPUT_SOURCE_ID);
-            let right =
-                tis_get_input_source_property(other.0.as_ptr(), TIS_PROPERTY_INPUT_SOURCE_ID);
-            !left.is_null() && !right.is_null() && cf_equal(left, right) != 0
-        }
-    }
-}
-
-impl Drop for RetainedInputSource {
-    fn drop(&mut self) {
-        // SAFETY: `from_copy` gives this wrapper ownership of one retain.
-        unsafe { cf_release(self.0.as_ptr().cast()) }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct InputSourceRestore {
-    previous: RetainedInputSource,
-}
-
-impl Drop for InputSourceRestore {
-    fn drop(&mut self) {
-        let status = self.previous.select();
-        if status != 0 {
-            tracing::debug!(
-                status,
-                "failed to restore host input source after prefix mode"
-            );
-        }
-    }
-}
-
-pub(crate) fn switch_to_ascii_input_source() -> Option<InputSourceRestore> {
-    // SAFETY: both Carbon `Copy` functions transfer one retain to the caller.
-    let current =
-        unsafe { RetainedInputSource::from_copy(tis_copy_current_keyboard_input_source())? };
-    let ascii = unsafe {
-        RetainedInputSource::from_copy(
-            tis_copy_current_ascii_capable_keyboard_layout_input_source(),
-        )?
-    };
-
-    if current.has_same_id(&ascii) {
-        return None;
-    }
-
-    let status = ascii.select();
-    if status != 0 {
-        tracing::debug!(status, "failed to switch host input source for prefix mode");
-        return None;
-    }
-
-    Some(InputSourceRestore { previous: current })
 }
 
 pub fn raise_server_nofile_limit() {
@@ -640,290 +511,6 @@ fn kern_procargs2(pid: u32) -> Option<Vec<u8>> {
         buf.truncate(size);
         Some(buf)
     }
-}
-
-pub fn write_clipboard(bytes: &[u8]) -> bool {
-    run_clipboard_command(
-        &ClipboardCommand {
-            program: "pbcopy",
-            args: &[],
-        },
-        bytes,
-    )
-}
-
-pub fn read_clipboard_text() -> Option<String> {
-    const MAX_CLIPBOARD_TEXT_BYTES: usize = 1024 * 1024;
-
-    let mut child = Command::new("pbpaste")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let stdout = child.stdout.take()?;
-    let read = match read_limited_reader(stdout, MAX_CLIPBOARD_TEXT_BYTES) {
-        Ok(LimitedRead::Oversized) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        Ok(read) => read,
-        Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-    };
-    let status = child.wait().ok()?;
-    if !status.success() {
-        return None;
-    }
-    match read {
-        LimitedRead::Complete(bytes) => String::from_utf8(bytes).ok(),
-        LimitedRead::Empty => None,
-        LimitedRead::Oversized => unreachable!("oversized clipboard text is handled before wait"),
-    }
-}
-
-pub fn clipboard_text_matches(_bytes: &[u8]) -> Option<bool> {
-    None
-}
-
-pub fn open_url(url: &str) -> std::io::Result<Option<std::process::Child>> {
-    Command::new("open")
-        .arg(url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(Some)
-}
-
-pub fn read_clipboard_image() -> Option<ClipboardImage> {
-    let path = std::env::temp_dir().join(format!(
-        "herdr-clipboard-image-{}-{}.png",
-        std::process::id(),
-        unique_timestamp_nanos()
-    ));
-    let script = format!(
-        "set png_data to (the clipboard as «class PNGf»)\nset fp to open for access POSIX file \"{}\" with write permission\nwrite png_data to fp\nclose access fp",
-        path.display()
-    );
-
-    let status = Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .ok()?;
-
-    if !status.success() {
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
-
-    let bytes = match std::fs::File::open(&path).ok().and_then(|file| {
-        read_limited_reader(file, crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD).ok()
-    }) {
-        Some(LimitedRead::Complete(bytes)) => bytes,
-        Some(LimitedRead::Empty | LimitedRead::Oversized) | None => {
-            let _ = std::fs::remove_file(&path);
-            return None;
-        }
-    };
-    let _ = std::fs::remove_file(&path);
-    Some(ClipboardImage {
-        bytes,
-        extension: "png",
-    })
-}
-
-fn unique_timestamp_nanos() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0)
-}
-
-/// Show a native macOS notification.
-///
-/// Prefer `terminal-notifier` when it is installed because it can activate the
-/// hosting terminal on click. Fall back to built-in AppleScript notifications
-/// when it is not available.
-pub fn show_desktop_notification(title: &str, body: Option<&str>) -> std::io::Result<bool> {
-    show_desktop_notification_with_command(title, body, |program| Command::new(program))
-}
-
-fn show_desktop_notification_with_command(
-    title: &str,
-    body: Option<&str>,
-    mut command: impl FnMut(&str) -> Command,
-) -> std::io::Result<bool> {
-    if show_terminal_notifier_notification(title, body, &mut command).unwrap_or(false) {
-        return Ok(true);
-    }
-
-    show_osascript_notification(title, body, &mut command)
-}
-
-fn show_terminal_notifier_notification(
-    title: &str,
-    body: Option<&str>,
-    command: &mut impl FnMut(&str) -> Command,
-) -> std::io::Result<bool> {
-    let activate_bundle_id = verified_terminal_bundle_identifier(command);
-    show_terminal_notifier_notification_with_options(
-        title,
-        body,
-        activate_bundle_id.as_deref(),
-        command,
-    )
-}
-
-fn show_terminal_notifier_notification_with_options(
-    title: &str,
-    body: Option<&str>,
-    activate_bundle_id: Option<&str>,
-    command: &mut impl FnMut(&str) -> Command,
-) -> std::io::Result<bool> {
-    let mut cmd = command("terminal-notifier");
-    build_terminal_notifier_command(&mut cmd, title, body, activate_bundle_id);
-    run_notification_command(cmd)
-}
-
-fn build_terminal_notifier_command(
-    cmd: &mut Command,
-    title: &str,
-    body: Option<&str>,
-    activate_bundle_id: Option<&str>,
-) {
-    cmd.arg("-title").arg(title);
-    cmd.arg("-message").arg(body.unwrap_or_default());
-    if let Some(bundle_id) = activate_bundle_id {
-        cmd.arg("-activate").arg(bundle_id);
-    }
-}
-
-fn show_osascript_notification(
-    title: &str,
-    body: Option<&str>,
-    command: &mut impl FnMut(&str) -> Command,
-) -> std::io::Result<bool> {
-    let mut cmd = command("/usr/bin/osascript");
-    cmd.arg("-e")
-        .arg("on run argv")
-        .arg("-e")
-        .arg("display notification (item 2 of argv) with title (item 1 of argv)")
-        .arg("-e")
-        .arg("end run")
-        .arg(title)
-        .arg(body.unwrap_or_default());
-    run_notification_command(cmd)
-}
-
-fn verified_terminal_bundle_identifier(
-    command: &mut impl FnMut(&str) -> Command,
-) -> Option<String> {
-    static BUNDLE_ID: OnceLock<Option<String>> = OnceLock::new();
-    BUNDLE_ID
-        .get_or_init(|| {
-            let bundle_id = detected_terminal_bundle_identifier()?;
-            bundle_identifier_available(bundle_id, command).then(|| bundle_id.to_owned())
-        })
-        .clone()
-}
-
-fn bundle_identifier_available(bundle_id: &str, command: &mut impl FnMut(&str) -> Command) -> bool {
-    let query = format!("kMDItemCFBundleIdentifier == '{bundle_id}'");
-    let output = command("mdfind")
-        .arg(query)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-
-    match output {
-        Ok(output) if output.status.success() => !output.stdout.is_empty(),
-        _ => false,
-    }
-}
-
-fn detected_terminal_bundle_identifier() -> Option<&'static str> {
-    terminal_bundle_identifier_from_env(
-        std::env::var("TERM_PROGRAM").ok().as_deref(),
-        std::env::var("TERM").ok().as_deref(),
-        std::env::var_os("KITTY_WINDOW_ID").is_some(),
-        std::env::var_os("ALACRITTY_WINDOW_ID").is_some(),
-    )
-}
-
-fn terminal_bundle_identifier_from_env(
-    term_program: Option<&str>,
-    term: Option<&str>,
-    has_kitty_window_id: bool,
-    has_alacritty_window_id: bool,
-) -> Option<&'static str> {
-    match term_program {
-        Some("ghostty") => return Some("com.mitchellh.ghostty"),
-        Some("iTerm.app") => return Some("com.googlecode.iterm2"),
-        Some("WezTerm") => return Some("com.github.wez.wezterm"),
-        Some("Apple_Terminal") => return Some("com.apple.Terminal"),
-        _ => {}
-    }
-
-    if has_kitty_window_id || term == Some("xterm-kitty") {
-        return Some("net.kovidgoyal.kitty");
-    }
-    if has_alacritty_window_id {
-        return Some("org.alacritty");
-    }
-
-    None
-}
-
-fn run_notification_command(mut command: Command) -> std::io::Result<bool> {
-    let status = match command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-    {
-        Ok(status) => status,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(err) => return Err(err),
-    };
-
-    Ok(status.success())
-}
-
-fn run_clipboard_command(command: &ClipboardCommand, bytes: &[u8]) -> bool {
-    let mut child = match Command::new(command.program)
-        .args(command.args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => return false,
-    };
-
-    let Some(mut stdin) = child.stdin.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return false;
-    };
-
-    if stdin.write_all(bytes).is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
-        return false;
-    }
-    drop(stdin);
-
-    child.wait().map(|status| status.success()).unwrap_or(false)
 }
 
 /// Start time of `pid` in microseconds. It tells a process apart from a later

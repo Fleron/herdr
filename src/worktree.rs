@@ -1,7 +1,6 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_WORKTREE_PREFIX: &str = "worktree";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorktreeCommand {
@@ -18,40 +17,7 @@ pub(crate) struct ExistingWorktree {
     pub is_prunable: bool,
 }
 
-pub(crate) fn generated_branch_slug(seed: u64) -> String {
-    let adjectives = [
-        "brave", "calm", "clear", "green", "lucky", "quiet", "rapid", "silver",
-    ];
-    let nouns = [
-        "river", "cloud", "field", "forest", "harbor", "meadow", "stone", "valley",
-    ];
-    let adjective = adjectives[(seed as usize) % adjectives.len()];
-    let noun = nouns[((seed / adjectives.len() as u64) as usize) % nouns.len()];
-    let suffix = seed & 0xffff;
-    format!("{DEFAULT_WORKTREE_PREFIX}/{adjective}-{noun}-{suffix:04x}")
-}
-
-pub(crate) fn branch_to_path_slug(branch: &str) -> String {
-    let mut slug = String::new();
-    let mut last_was_dash = false;
-
-    for ch in branch.chars() {
-        if ch.is_ascii_alphanumeric() {
-            slug.push(ch.to_ascii_lowercase());
-            last_was_dash = false;
-        } else if !last_was_dash {
-            slug.push('-');
-            last_was_dash = true;
-        }
-    }
-
-    let trimmed = slug.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        DEFAULT_WORKTREE_PREFIX.to_string()
-    } else {
-        trimmed
-    }
-}
+pub(crate) use crate::worktree_names::{generated_branch_slug,branch_to_path_slug};
 
 pub(crate) fn expand_tilde_path(path: &str) -> PathBuf {
     expand_tilde_path_from_env(path, cfg!(windows), |key| std::env::var_os(key))
@@ -198,10 +164,7 @@ pub(crate) fn is_dirty_worktree_remove_error(message: &str) -> bool {
         || lower.contains("working trees containing submodules cannot be moved or removed")
 }
 
-pub(crate) fn is_not_working_tree_remove_error(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("is not a working tree") || lower.contains("is not a worktree")
-}
+pub(crate) use crate::worktree_names::is_not_working_tree_remove_error;
 
 #[cfg(windows)]
 pub(crate) fn worktree_dirty_remove_message(path: &Path) -> String {

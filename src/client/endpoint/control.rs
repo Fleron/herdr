@@ -1,10 +1,7 @@
 use super::ClientEndpointId;
 
-pub(crate) struct DecodedAgentViewProjection {
-    pub(crate) boot_id: String,
-    pub(crate) revision: u64,
-    pub(crate) view: Result<Option<crate::api::schema::AgentViewSetParams>, ()>,
-}
+pub(crate) use crate::client::endpoint_model::DecodedAgentViewProjection;
+
 
 pub(crate) enum EndpointControlMessage {
     HealthPong,

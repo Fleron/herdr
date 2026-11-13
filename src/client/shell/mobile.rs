@@ -120,7 +120,10 @@ fn render_header_status(
         area.x.saturating_add(3),
         area.y,
         name_width.saturating_sub(3),
-        &crate::ui::truncate_end(&workspace.label, usize::from(name_width.saturating_sub(4))),
+        &crate::client::ui::truncate_end(
+            &workspace.label,
+            usize::from(name_width.saturating_sub(4)),
+        ),
         Style::default()
             .fg(palette.text)
             .bg(palette.panel_bg)
@@ -186,7 +189,7 @@ fn render_header_button(
     if snapshot
         .agents
         .iter()
-        .any(|agent| agent.agent_status == crate::api::schema::AgentStatus::Blocked)
+        .any(|agent| agent.agent_status == crate::client::ui_domain::AgentStatus::Blocked)
     {
         put_text(
             buffer,
@@ -194,7 +197,7 @@ fn render_header_button(
             area.y,
             1,
             status_icon(
-                crate::api::schema::AgentStatus::Blocked,
+                crate::client::ui_domain::AgentStatus::Blocked,
                 config.status_indicators,
             ),
             Style::default().fg(palette.red).bg(palette.surface0),
@@ -239,7 +242,7 @@ fn render_agent_summary(
     snapshot: &ClientShellSnapshot,
     config: &ClientShellConfig,
 ) {
-    use crate::api::schema::AgentStatus;
+    use crate::client::ui_domain::AgentStatus;
     let counts = [
         (AgentStatus::Blocked, "blocked"),
         (AgentStatus::Done, "done"),
@@ -637,16 +640,18 @@ fn mobile_items(
         for row in agents {
             let endpoint = row.endpoint;
             let agent = row.agent;
-            let workspace = endpoint
-                .snapshot
-                .workspaces
-                .iter()
-                .find(|workspace| workspace.workspace_id == agent.workspace_id);
-            let tab = endpoint
-                .snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.tab_id == agent.tab_id);
+            let workspace = endpoint.snapshot.workspaces.iter().find(|workspace| {
+                agent
+                    .view
+                    .as_ref()
+                    .is_some_and(|view| workspace.workspace_id == view.workspace_id)
+            });
+            let tab = endpoint.snapshot.tabs.iter().find(|tab| {
+                agent
+                    .view
+                    .as_ref()
+                    .is_some_and(|view| tab.tab_id == view.tab_id)
+            });
             let agent_label = agent
                 .display_agent
                 .as_deref()
@@ -661,7 +666,12 @@ fn mobile_items(
                 .snapshot
                 .tabs
                 .iter()
-                .filter(|candidate| candidate.workspace_id == agent.workspace_id)
+                .filter(|candidate| {
+                    agent
+                        .view
+                        .as_ref()
+                        .is_some_and(|view| candidate.workspace_id == view.workspace_id)
+                })
                 .count();
             if let Some(tab) = tab.filter(|tab| tab.custom_label || workspace_tab_count > 1) {
                 detail.push(tab.label.clone());
@@ -674,7 +684,7 @@ fn mobile_items(
                     .find(|(key, _)| key == status_key)
                     .map(|(_, label)| label.clone())
                     .unwrap_or_else(|| {
-                        if agent.agent_status == crate::api::schema::AgentStatus::Unknown {
+                        if agent.agent_status == crate::client::ui_domain::AgentStatus::Unknown {
                             "idle".to_owned()
                         } else {
                             status_key.to_owned()
@@ -717,7 +727,7 @@ fn mobile_items(
                         ),
                         Span::styled(" ", Style::default().bg(background)),
                         Span::styled(
-                            crate::ui::truncate_end(
+                            crate::client::ui::truncate_end(
                                 &format!("{} · {primary}", endpoint.label),
                                 usize::from(content_width.saturating_sub(5)),
                             ),
@@ -728,7 +738,7 @@ fn mobile_items(
                         ),
                     ]),
                     Line::from(Span::styled(
-                        crate::ui::truncate_end(
+                        crate::client::ui::truncate_end(
                             &format!("  {}", detail.join(" · ")),
                             usize::from(content_width),
                         ),
@@ -739,9 +749,9 @@ fn mobile_items(
                     )),
                 ],
                 background,
-                target: Some(ClientMobileTarget::Agent {
+                target: agent_focus_target(agent).map(|target| ClientMobileTarget::Agent {
                     endpoint_id: endpoint.endpoint_id.clone(),
-                    pane_id: agent.pane_id.clone(),
+                    target,
                 }),
             });
         }
@@ -842,7 +852,7 @@ fn mobile_items(
                         ),
                         Span::styled(" ", Style::default().bg(background)),
                         Span::styled(
-                            crate::ui::truncate_end(
+                            crate::client::ui::truncate_end(
                                 &format!("{} · {name}", endpoint.label),
                                 usize::from(content_width.saturating_sub(if entry.indented {
                                     8
@@ -857,7 +867,7 @@ fn mobile_items(
                         ),
                     ]),
                     Line::from(Span::styled(
-                        crate::ui::truncate_end(
+                        crate::client::ui::truncate_end(
                             &format!(
                                 "{detail_prefix}{branch} · {}{stale_detail}",
                                 compact_tab_status(endpoint.snapshot, workspace)
@@ -904,7 +914,10 @@ fn mobile_items(
             };
             let label = format!(
                 "  {}",
-                crate::ui::truncate_end(&label, usize::from(content_width.saturating_sub(3)),)
+                crate::client::ui::truncate_end(
+                    &label,
+                    usize::from(content_width.saturating_sub(3)),
+                )
             );
             items.push(MobileItem {
                 lines: vec![Line::from(Span::styled(
@@ -924,9 +937,12 @@ fn mobile_items(
     }
 
     items.push(MobileItem::section("menu", palette));
-    for (index, (label, _)) in super::global_menu::global_menu_items(snapshot)
-        .into_iter()
-        .enumerate()
+    for (index, (label, action)) in super::global_menu::global_menu_items(
+        snapshot,
+        super::global_menu::focused_runtime_target(snapshot).is_some(),
+    )
+    .into_iter()
+    .enumerate()
     {
         items.push(MobileItem {
             lines: vec![Line::from(Span::styled(
@@ -934,7 +950,33 @@ fn mobile_items(
                 Style::default().fg(palette.overlay1).bg(palette.panel_bg),
             ))],
             background: palette.panel_bg,
-            target: Some(ClientMobileTarget::Menu(index)),
+            target: Some(match action {
+                super::global_menu::ClientGlobalMenuAction::Retry => {
+                    ClientMobileTarget::CoreAction(crate::client::ui_action::CoreAction::Retry)
+                }
+                super::global_menu::ClientGlobalMenuAction::DiscardHeldInput => {
+                    ClientMobileTarget::CoreAction(
+                        crate::client::ui_action::CoreAction::DiscardHeldInput,
+                    )
+                }
+                super::global_menu::ClientGlobalMenuAction::DiscardPendingLayouts => {
+                    ClientMobileTarget::CoreAction(
+                        crate::client::ui_action::CoreAction::DiscardPendingLayouts,
+                    )
+                }
+                super::global_menu::ClientGlobalMenuAction::StopTerminal => {
+                    ClientMobileTarget::CoreAction(
+                        crate::client::ui_action::CoreAction::StopTerminal(
+                            super::global_menu::focused_runtime_target(snapshot)
+                                .expect("stop item requires a captured terminal"),
+                        ),
+                    )
+                }
+                super::global_menu::ClientGlobalMenuAction::AttachTerminal => {
+                    ClientMobileTarget::AttachCoreTerminals
+                }
+                _ => ClientMobileTarget::Menu(index),
+            }),
         });
     }
     items
@@ -1037,13 +1079,9 @@ impl ClientShellState {
             }
             Some(ClientMobileTarget::Agent {
                 endpoint_id,
-                pane_id,
+                target,
             }) => {
-                if self.focus_or_activate(
-                    endpoint_id,
-                    ClientEndpointFocusTarget::Pane(pane_id),
-                    outcome,
-                ) {
+                if self.focus_or_activate(endpoint_id, target, outcome) {
                     self.mode = ClientShellMode::Terminal;
                     self.navigate_workspace_id = None;
                 }
@@ -1068,14 +1106,21 @@ impl ClientShellState {
                     outcome,
                 );
             }
+            Some(ClientMobileTarget::CoreAction(action)) => {
+                self.request_core_action(action, outcome)
+            }
+            Some(ClientMobileTarget::AttachCoreTerminals) => self.open_reported_core_terminals(),
             Some(ClientMobileTarget::Menu(index)) => {
                 let actionable = self.snapshot.as_deref().is_some_and(|snapshot| {
-                    super::global_menu::global_menu_items(snapshot)
-                        .get(index)
-                        .is_some_and(|(_, action)| {
-                            *action != super::global_menu::ClientGlobalMenuAction::WhatsNew
-                                || snapshot.release_notes.is_some()
-                        })
+                    super::global_menu::global_menu_items(
+                        snapshot,
+                        super::global_menu::focused_runtime_target(snapshot).is_some(),
+                    )
+                    .get(index)
+                    .is_some_and(|(_, action)| {
+                        *action != super::global_menu::ClientGlobalMenuAction::WhatsNew
+                            || snapshot.release_notes.is_some()
+                    })
                 });
                 if actionable {
                     self.mobile_switcher_suspended = true;
@@ -1099,7 +1144,7 @@ fn render_left_scrollbar(
     if viewport.is_empty() {
         return;
     }
-    let metrics = crate::pane::ScrollMetrics {
+    let metrics = crate::client::ui_state::ScrollMetrics {
         offset_from_bottom: total_rows
             .saturating_sub(usize::from(viewport.height))
             .saturating_sub(scroll),
@@ -1119,7 +1164,7 @@ fn render_left_scrollbar(
                 .bg(palette.panel_bg),
         );
     }
-    if let Some(thumb) = crate::ui::scrollbar_thumb(metrics, track) {
+    if let Some(thumb) = crate::client::ui::scrollbar_thumb(metrics, track) {
         for y in thumb.top..thumb.top.saturating_add(thumb.len) {
             put_text(
                 buffer,

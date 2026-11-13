@@ -3,7 +3,7 @@ use super::*;
 fn restore_mode_bar(
     frame: &mut FrameData,
     bar: Option<Rect>,
-    cells: Option<&[crate::protocol::CellData]>,
+    cells: Option<&[crate::client::frame::CellData]>,
 ) {
     let (Some(bar), Some(cells)) = (bar, cells) else {
         return;
@@ -152,8 +152,19 @@ impl ClientShellState {
         cols: u16,
         rows: u16,
     ) -> Option<crate::client::frame_output::ComposedFrame> {
-        self.last_composed_at = Some(std::time::Instant::now());
-        self.selection_repaint_deadline = None;
+        self.compose_inner(cols, rows, true)
+    }
+
+    pub(super) fn compose_inner(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        output: bool,
+    ) -> Option<crate::client::frame_output::ComposedFrame> {
+        if output {
+            self.last_composed_at = Some(std::time::Instant::now());
+            self.selection_repaint_deadline = None;
+        }
         if self.last_composed_size != Some((cols, rows)) && self.mode == ClientShellMode::Navigate {
             self.reveal_navigation_workspace = true;
             self.reveal_mobile_workspace = true;
@@ -259,13 +270,15 @@ impl ClientShellState {
                         rect.height,
                     )
                 }),
-                scroll: pane.scroll.map(|metrics| crate::pane::ScrollMetrics {
-                    offset_from_bottom: usize::try_from(metrics.offset_from_bottom)
-                        .unwrap_or(usize::MAX),
-                    max_offset_from_bottom: usize::try_from(metrics.max_offset_from_bottom)
-                        .unwrap_or(usize::MAX),
-                    viewport_rows: usize::try_from(metrics.viewport_rows).unwrap_or(usize::MAX),
-                }),
+                scroll: pane
+                    .scroll
+                    .map(|metrics| crate::client::ui_state::ScrollMetrics {
+                        offset_from_bottom: usize::try_from(metrics.offset_from_bottom)
+                            .unwrap_or(usize::MAX),
+                        max_offset_from_bottom: usize::try_from(metrics.max_offset_from_bottom)
+                            .unwrap_or(usize::MAX),
+                        viewport_rows: usize::try_from(metrics.viewport_rows).unwrap_or(usize::MAX),
+                    }),
                 pane_id: pane.pane_id.clone(),
                 popup: false,
                 mouse_reporting: pane.mouse_reporting,
@@ -279,12 +292,13 @@ impl ClientShellState {
             .splits
             .iter()
             .map(|split| PaneSplitHit {
+                split_id: split.split_id.clone(),
                 direction: split.direction,
                 pos: match split.direction {
-                    crate::protocol::PaneSurfaceSplitDirection::Horizontal => {
+                    crate::client::ui_model::PaneSurfaceSplitDirection::Horizontal => {
                         layout.pane_surface.x.saturating_add(split.pos)
                     }
-                    crate::protocol::PaneSurfaceSplitDirection::Vertical => {
+                    crate::client::ui_model::PaneSurfaceSplitDirection::Vertical => {
                         layout.pane_surface.y.saturating_add(split.pos)
                     }
                 },
@@ -386,7 +400,7 @@ impl ClientShellState {
                             occlusion.cover(rect);
                         }
                     }
-                    crate::ui::render_selection_highlight(
+                    crate::client::ui::render_selection_highlight(
                         self.selection.as_ref(),
                         &mut composed,
                         &hit.pane_id,
@@ -472,7 +486,7 @@ impl ClientShellState {
                 } else {
                     layout.pane_surface
                 };
-                crate::ui::render_config_diagnostic_buffer(
+                crate::client::ui::render_config_diagnostic_buffer(
                     &mut composed,
                     diagnostic_area,
                     diagnostic,
@@ -541,14 +555,14 @@ impl ClientShellState {
             } else {
                 Rect::new(0, 0, cols, rows)
             };
-            let offset = crate::ui::copy_feedback_offset_for_toast(
+            let offset = crate::client::ui::copy_feedback_offset_for_toast(
                 feedback_area,
                 feedback,
                 base_offset,
                 self.config.clipboard_toast_position,
                 self.hits.notification_toast,
             );
-            occlusion.cover(crate::ui::render_copy_feedback_buffer(
+            occlusion.cover(crate::client::ui::render_copy_feedback_buffer(
                 &mut composed,
                 feedback_area,
                 feedback,
@@ -680,6 +694,8 @@ impl ClientShellState {
                 self.hits.navigator_rows = rendered.navigator_rows;
                 self.hits.navigator_scrollbar = rendered.navigator_scrollbar;
                 self.hits.navigator_scroll_metrics = rendered.navigator_scroll_metrics;
+                self.hits.core_terminal_search = rendered.core_terminal_search;
+                self.hits.core_terminal_rows = rendered.core_terminal_rows;
                 self.hits.worktree_search = rendered.worktree_search;
                 self.hits.worktree_rows = rendered.worktree_rows;
                 self.hits.help_popup = rendered.help_popup;
@@ -720,7 +736,11 @@ impl ClientShellState {
             self.hits.pane_splits.clear();
             self.hits.popup = None;
         }
-        let graphics = self.compose_graphics(layout, &occlusion);
+        let graphics = if output {
+            self.compose_graphics(layout, &occlusion)
+        } else {
+            crate::kitty_graphics::GraphicsOutput::default()
+        };
         Some(crate::client::frame_output::ComposedFrame { frame, graphics })
     }
 }
@@ -803,12 +823,14 @@ fn render_client_copy_search_highlights(
     }
 }
 
-fn client_popup_size(size: crate::protocol::ClientShellPopupSize) -> crate::popup_size::PopupSize {
+fn client_popup_size(
+    size: crate::client::ui_model::ClientShellPopupSize,
+) -> crate::popup_size::PopupSize {
     match size {
-        crate::protocol::ClientShellPopupSize::Cells(cells) => {
+        crate::client::ui_model::ClientShellPopupSize::Cells(cells) => {
             crate::popup_size::PopupSize::Cells(cells)
         }
-        crate::protocol::ClientShellPopupSize::Percent(percent) => {
+        crate::client::ui_model::ClientShellPopupSize::Percent(percent) => {
             crate::popup_size::PopupSize::Percent(percent)
         }
     }

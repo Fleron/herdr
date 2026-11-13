@@ -434,6 +434,7 @@ enum WindowsWin32InputModeItem {
 impl WindowsInputPump {
     fn flush_before_semantic(&mut self) -> Vec<crate::raw_input::RawInputEvent> {
         // A scan-code-zero reply prefix can outlive an unrelated keyboard record.
+        #[cfg(windows)]
         if self.pending_escape_origin == Some(EscapeOrigin::HostReply)
             && self.framer.holds_host_default_color_escape()
         {

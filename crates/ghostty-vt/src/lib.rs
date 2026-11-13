@@ -321,6 +321,17 @@ pub enum CursorVisualStyle {
     BlockHollow,
 }
 
+pub fn decscusr_cursor_shape(style: CursorVisualStyle, blinking: bool) -> u8 {
+    match (style, blinking) {
+        (CursorVisualStyle::Block, true) | (CursorVisualStyle::BlockHollow, true) => 1,
+        (CursorVisualStyle::Block, false) | (CursorVisualStyle::BlockHollow, false) => 2,
+        (CursorVisualStyle::Underline, true) => 3,
+        (CursorVisualStyle::Underline, false) => 4,
+        (CursorVisualStyle::Bar, true) => 5,
+        (CursorVisualStyle::Bar, false) => 6,
+    }
+}
+
 impl CursorVisualStyle {
     fn from_raw(value: ffi::GhosttyRenderStateCursorVisualStyle) -> Self {
         match value {
@@ -1072,9 +1083,16 @@ impl Terminal {
     }
 
     pub fn enable_kitty_graphics(&mut self) -> Result<(), Error> {
+        self.configure_kitty_graphics(true)
+    }
+
+    pub fn enable_inline_kitty_graphics(&mut self) -> Result<(), Error> {
+        self.configure_kitty_graphics(false)
+    }
+
+    fn configure_kitty_graphics(&mut self, local_media: bool) -> Result<(), Error> {
         install_png_decoder_once();
         let storage_limit = KITTY_IMAGE_STORAGE_LIMIT_BYTES;
-        let enable_medium = true;
         let temp_dir = std::env::temp_dir();
         let temp_dir = temp_dir.to_string_lossy();
         let temp_dir = ffi::GhosttyString {
@@ -1091,19 +1109,23 @@ impl Terminal {
             ffi::ghostty_terminal_set(
                 self.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
-                (&enable_medium as *const bool).cast(),
+                (&local_media as *const bool).cast(),
             )
             .into_result()?;
             ffi::ghostty_terminal_set(
                 self.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
-                (&temp_dir as *const ffi::GhosttyString).cast(),
+                if local_media {
+                    (&temp_dir as *const ffi::GhosttyString).cast()
+                } else {
+                    ptr::null()
+                },
             )
             .into_result()?;
             ffi::ghostty_terminal_set(
                 self.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
-                (&enable_medium as *const bool).cast(),
+                (&local_media as *const bool).cast(),
             )
             .into_result()?;
             ffi::ghostty_terminal_set(
@@ -4151,6 +4173,50 @@ mod tests {
             terminal.write(b"\x1b_Ga=T,f=32,t=d,i=7,p=3,s=1,v=1,c=1,r=1;/wAA/w==\x1b\\");
             assert!(terminal.kitty_image_placements().unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn inline_kitty_graphics_accepts_pixels_without_opening_local_media() {
+        use base64::Engine as _;
+
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-inline-kitty-media-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tty-graphics-protocol-pixel");
+        std::fs::write(&path, [255, 0, 0, 255]).unwrap();
+        let encoded_path =
+            base64::engine::general_purpose::STANDARD.encode(path.as_os_str().as_encoded_bytes());
+
+        let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        terminal.enable_kitty_graphics().unwrap();
+        terminal.enable_inline_kitty_graphics().unwrap();
+        terminal.resize(10, 5, 8, 16).unwrap();
+        assert!(!terminal
+            .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM)
+            .unwrap());
+
+        terminal.write(b"\x1b_Ga=T,f=32,t=d,i=7,p=3,s=1,v=1,c=1,r=1,q=2;/wAA/w==\x1b\\");
+        let placements = terminal.kitty_image_placements().unwrap();
+        assert_eq!(placements.len(), 1);
+        assert_eq!(placements[0].data, [255, 0, 0, 255]);
+
+        for screen in [b"".as_slice(), b"\x1b[?1049h", b"\x1b[?1049l", b"\x1bc"] {
+            terminal.write(screen);
+            for (medium, image) in [('f', 9), ('t', 10)] {
+                let command = format!("\x1b_Ga=T,f=32,t={medium},i={image},p=4,s=1,v=1,c=1,r=1,q=2;{encoded_path}\x1b\\");
+                terminal.write(command.as_bytes());
+                assert!(terminal
+                    .kitty_image_placements()
+                    .unwrap()
+                    .iter()
+                    .all(|placement| placement.image_id != image));
+                assert_eq!(std::fs::read(&path).unwrap(), [255, 0, 0, 255]);
+            }
+        }
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -5,7 +5,8 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
-use crate::app::state::{Palette, ProductAnnouncementState, ReleaseNotesState};
+use crate::client::ui_state::{ProductAnnouncementState, ReleaseNotesState};
+use crate::palette::Palette;
 
 pub(crate) const RELEASE_NOTES_MODAL_SIZE: (u16, u16) = (80, 24);
 pub(crate) const PRODUCT_ANNOUNCEMENT_MODAL_SIZE: (u16, u16) = (88, 24);
@@ -151,7 +152,7 @@ fn release_notes_preview_line_entries<'a>(
         .fg(p.accent)
         .bg(p.surface0)
         .add_modifier(Modifier::BOLD);
-    let instruction = crate::update::update_install_instruction(install_command);
+    let instruction = update_install_instruction(install_command);
     let (instruction_width, mut instruction_spans) =
         release_notes_inline_spans(&instruction, text_style, inline_code_style);
     instruction_spans.insert(0, Span::raw(" "));
@@ -197,7 +198,7 @@ fn display_lines_scroll_metrics(
     lines: &[(usize, Line<'_>)],
     scroll: u16,
     body: Rect,
-) -> crate::pane::ScrollMetrics {
+) -> crate::client::ui_state::ScrollMetrics {
     let viewport_rows = body.height.max(1) as usize;
     let rows_for_width = |width: u16| release_notes_wrapped_line_count(lines, width.max(1));
     let full_width = body.width.max(1);
@@ -208,7 +209,7 @@ fn display_lines_scroll_metrics(
         full_width
     };
     let max_offset_from_bottom = rows_for_width(wrap_width).saturating_sub(viewport_rows);
-    crate::pane::ScrollMetrics {
+    crate::client::ui_state::ScrollMetrics {
         offset_from_bottom: max_offset_from_bottom.saturating_sub(usize::from(scroll)),
         max_offset_from_bottom,
         viewport_rows,
@@ -220,7 +221,7 @@ pub(crate) fn release_notes_scroll_metrics(
     install_command: &str,
     body: Rect,
     p: &Palette,
-) -> crate::pane::ScrollMetrics {
+) -> crate::client::ui_state::ScrollMetrics {
     display_lines_scroll_metrics(
         &release_notes_display_lines(notes, install_command, p),
         notes.scroll,
@@ -232,7 +233,7 @@ pub(crate) fn product_announcement_scroll_metrics(
     announcement: &ProductAnnouncementState,
     body: Rect,
     p: &Palette,
-) -> crate::pane::ScrollMetrics {
+) -> crate::client::ui_state::ScrollMetrics {
     display_lines_scroll_metrics(
         &product_announcement_display_lines(announcement, p),
         announcement.scroll,
@@ -255,10 +256,34 @@ pub(crate) fn release_notes_close_button_rect(area: Rect) -> Rect {
     super::widgets::close_button_rect(area)
 }
 
+pub(crate) const HERDR_UPDATE_COMMAND: &str = "herdr update";
+pub(crate) const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
+pub(crate) const MISE_UPDATE_COMMAND: &str = "mise upgrade herdr";
+pub(crate) const NIX_UPDATE_COMMAND: &str = "update through Nix";
+
+pub(crate) fn update_install_instruction(install_command: &str) -> String {
+    match install_command {
+        HERDR_UPDATE_COMMAND => {
+            "detach, run `herdr update`, then run Herdr again to reconnect".to_string()
+        }
+        HOMEBREW_UPDATE_COMMAND => {
+            "detach, run `brew update && brew upgrade herdr`, then run Herdr again to reconnect"
+                .to_string()
+        }
+        MISE_UPDATE_COMMAND => {
+            "detach, run `mise upgrade herdr`, then run Herdr again to reconnect".to_string()
+        }
+        NIX_UPDATE_COMMAND => {
+            "detach, update through Nix, then run Herdr again to reconnect".to_string()
+        }
+        command => format!("detach, run `{command}`, then run Herdr again to reconnect"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::Palette;
+    use crate::palette::Palette;
 
     fn line_text(line: &Line<'_>) -> String {
         line.spans

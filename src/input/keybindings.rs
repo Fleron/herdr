@@ -5,19 +5,19 @@ use crate::config::{CustomCommandKeybind, Keybinds};
 use super::TerminalKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum KeybindDispatch {
+pub enum KeybindDispatch {
     Direct,
     Prefix,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum KeybindMatch {
+pub enum KeybindMatch {
     Action(KeybindAction),
     Command(CustomCommandKeybind),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum KeybindAction {
+pub enum KeybindAction {
     NewWorkspace,
     NewWorktree,
     OpenWorktree,
@@ -72,17 +72,11 @@ pub(crate) enum KeybindAction {
     OpenNavigator,
 }
 
-pub(crate) fn resolve_direct_binding(
-    keybinds: &Keybinds,
-    key: &TerminalKey,
-) -> Option<KeybindMatch> {
+pub fn resolve_direct_binding(keybinds: &Keybinds, key: &TerminalKey) -> Option<KeybindMatch> {
     resolve_exact_binding(keybinds, key, KeybindDispatch::Direct)
 }
 
-pub(crate) fn resolve_prefix_binding(
-    keybinds: &Keybinds,
-    key: &TerminalKey,
-) -> Option<KeybindMatch> {
+pub fn resolve_prefix_binding(keybinds: &Keybinds, key: &TerminalKey) -> Option<KeybindMatch> {
     resolve_exact_binding(keybinds, key, KeybindDispatch::Prefix).or_else(|| {
         generated_character_key(key).and_then(|generated_key| {
             resolve_exact_binding(keybinds, &generated_key, KeybindDispatch::Prefix)
@@ -90,7 +84,7 @@ pub(crate) fn resolve_prefix_binding(
     })
 }
 
-pub(crate) fn resolve_non_indexed_action(
+pub fn resolve_non_indexed_action(
     keybinds: &Keybinds,
     key: &TerminalKey,
     dispatch: KeybindDispatch,
@@ -162,7 +156,7 @@ pub(crate) fn resolve_non_indexed_action(
     None
 }
 
-pub(crate) fn resolve_custom_command(
+pub fn resolve_custom_command(
     keybinds: &Keybinds,
     key: &TerminalKey,
     dispatch: KeybindDispatch,
@@ -177,7 +171,7 @@ pub(crate) fn resolve_custom_command(
         .cloned()
 }
 
-pub(crate) fn resolve_indexed_action(
+pub fn resolve_indexed_action(
     keybinds: &Keybinds,
     key: &TerminalKey,
     dispatch: KeybindDispatch,

@@ -7,11 +7,11 @@ use crate::{
     input::TerminalKey,
 };
 
-pub(crate) type KeybindHelpEntry = (String, Cow<'static, str>);
-pub(crate) type KeybindHelpGroup = (&'static str, Vec<KeybindHelpEntry>);
+pub type KeybindHelpEntry = (String, Cow<'static, str>);
+pub type KeybindHelpGroup = (&'static str, Vec<KeybindHelpEntry>);
 
 /// The character a key types, for overlay shortcuts and text fields.
-pub(crate) fn keybind_help_text_char(key: &TerminalKey) -> Option<char> {
+pub fn keybind_help_text_char(key: &TerminalKey) -> Option<char> {
     if !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
         return None;
     }
@@ -72,7 +72,7 @@ fn indexed_range_prefix(bindings: &[IndexedKeybind]) -> Option<&str> {
     Some(prefix)
 }
 
-pub(crate) fn keybind_help_groups(
+pub fn keybind_help_groups(
     keybinds: &Keybinds,
     prefixes: &[crate::config::KeyCombo],
 ) -> Vec<KeybindHelpGroup> {
@@ -228,7 +228,7 @@ pub(crate) fn keybind_help_groups(
     groups
 }
 
-pub(crate) fn filter_keybind_help_groups(
+pub fn filter_keybind_help_groups(
     groups: Vec<KeybindHelpGroup>,
     query: &str,
 ) -> Vec<KeybindHelpGroup> {

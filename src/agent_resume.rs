@@ -13,12 +13,7 @@ pub struct AgentSessionRef {
     pub value: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentSessionRefKind {
-    Id,
-    Path,
-}
+pub use crate::client::ui_domain::AgentSessionRefKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentResumePlan {

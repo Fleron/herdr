@@ -7,10 +7,14 @@
 //! operations. Client-owned shells negotiate the independent stable endpoint
 //! contract in [`super::endpoint`].
 
-use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+pub use crate::client::frame::{
+    u16_to_modifier, u32_to_color, underline_style_from_modifier, ClientHostColor,
+};
 
 // ---------------------------------------------------------------------------
 // Protocol constants
@@ -28,8 +32,7 @@ pub const MAX_FRAME_SIZE: usize = 2 * 1024 * 1024;
 /// image payloads that are naturally much larger after base64 encoding.
 pub const MAX_GRAPHICS_FRAME_SIZE: usize = 32 * 1024 * 1024;
 
-/// Maximum clipboard image payload size for remote paste bridging.
-pub const MAX_CLIPBOARD_IMAGE_PAYLOAD: usize = 16 * 1024 * 1024;
+pub use crate::client::frame::MAX_CLIPBOARD_IMAGE_PAYLOAD;
 
 /// Length of the u32 little-endian length prefix in bytes.
 const LENGTH_PREFIX_BYTES: usize = 4;
@@ -47,414 +50,27 @@ pub enum RenderEncoding {
     TerminalAnsi,
 }
 
-/// Size of the pane surface requested by a client-owned shell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientSurfaceSize {
-    pub cols: u16,
-    pub rows: u16,
-}
+pub use crate::client::frame::ClientSurfaceSize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientKeyKind {
-    Press,
-    Repeat,
-    Release,
-}
+pub use crate::client::frame::ClientKeyKind;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ClientKeyCode {
-    Backspace,
-    Enter,
-    Left,
-    Right,
-    Up,
-    Down,
-    Home,
-    End,
-    PageUp,
-    PageDown,
-    Tab,
-    BackTab,
-    Delete,
-    Insert,
-    Esc,
-    Char(char),
-    F(u8),
-    Null,
-}
+pub use crate::client::frame::ClientKeyCode;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ClientMouseButton {
-    Left,
-    Right,
-    Middle,
-}
+pub use crate::client::frame::ClientMouseButton;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientMouseKind {
-    Down(ClientMouseButton),
-    Up(ClientMouseButton),
-    Drag(ClientMouseButton),
-    Moved,
-    ScrollUp,
-    ScrollDown,
-    ScrollLeft,
-    ScrollRight,
-}
+pub use crate::client::frame::ClientMouseKind;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientMousePosition {
-    Cell {
-        column: u16,
-        row: u16,
-    },
-    Pixels {
-        x: u32,
-        y: u32,
-        column: u16,
-        row: u16,
-    },
-}
+pub use crate::client::frame::ClientMousePosition;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientMouseGeometry {
-    pub cols: u16,
-    pub rows: u16,
-    pub width_px: u32,
-    pub height_px: u32,
-}
+pub use crate::client::frame::ClientMouseGeometry;
 
 #[cfg(any(windows, test))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientInputEvent {
-    Key {
-        code: ClientKeyCode,
-        modifiers: u8,
-        kind: ClientKeyKind,
-        repeat_count: u16,
-        generated_text: Option<String>,
-        source: ClientKeySource,
-    },
-    TextCommit(String),
-    Mouse {
-        kind: ClientMouseKind,
-        column: u16,
-        row: u16,
-        modifiers: u8,
-    },
-    Paste {
-        text: String,
-    },
-    FocusGained,
-    FocusLost,
-    HostDefaultColor {
-        kind: ClientHostDefaultColorKind,
-        color: ClientHostColor,
-    },
-}
+pub use crate::client::frame::ClientInputEvent;
 
-/// Pane-domain input after the client has classified and consumed shell actions.
-///
-/// Keys are semantic rather than outer-terminal VT bytes so the target pane can
-/// encode them for the child application's negotiated keyboard protocol.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientPaneInputEvent {
-    Key {
-        code: ClientKeyCode,
-        modifiers: u8,
-        kind: ClientKeyKind,
-        repeat_count: u16,
-        shifted_codepoint: Option<u32>,
-        generated_text: Option<String>,
-        tracks_release: bool,
-        physical_key_id: Option<u32>,
-        windows_record: Option<crate::input::WindowsKeyRecord>,
-    },
-    TextCommit(String),
-    Mouse {
-        kind: ClientMouseKind,
-        position: ClientMousePosition,
-        geometry: Option<ClientMouseGeometry>,
-        modifiers: u8,
-        lines: u16,
-    },
-    Paste(String),
-}
+pub use crate::client::frame::ClientPaneInputEvent;
 
 #[cfg(any(windows, test))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientKeySource {
-    Synthesized,
-    Vt {
-        bytes: Vec<u8>,
-    },
-    WindowsConsole {
-        record: crate::input::WindowsKeyRecord,
-    },
-}
-
-impl ClientKeyKind {
-    pub(crate) fn from_crossterm(kind: crossterm::event::KeyEventKind) -> Self {
-        match kind {
-            crossterm::event::KeyEventKind::Press => Self::Press,
-            crossterm::event::KeyEventKind::Repeat => Self::Repeat,
-            crossterm::event::KeyEventKind::Release => Self::Release,
-        }
-    }
-
-    pub(crate) fn to_crossterm(self) -> crossterm::event::KeyEventKind {
-        match self {
-            Self::Press => crossterm::event::KeyEventKind::Press,
-            Self::Repeat => crossterm::event::KeyEventKind::Repeat,
-            Self::Release => crossterm::event::KeyEventKind::Release,
-        }
-    }
-}
-
-impl ClientKeyCode {
-    pub(crate) fn from_crossterm(code: crossterm::event::KeyCode) -> Option<Self> {
-        use crossterm::event::KeyCode;
-        Some(match code {
-            KeyCode::Backspace => Self::Backspace,
-            KeyCode::Enter => Self::Enter,
-            KeyCode::Left => Self::Left,
-            KeyCode::Right => Self::Right,
-            KeyCode::Up => Self::Up,
-            KeyCode::Down => Self::Down,
-            KeyCode::Home => Self::Home,
-            KeyCode::End => Self::End,
-            KeyCode::PageUp => Self::PageUp,
-            KeyCode::PageDown => Self::PageDown,
-            KeyCode::Tab => Self::Tab,
-            KeyCode::BackTab => Self::BackTab,
-            KeyCode::Delete => Self::Delete,
-            KeyCode::Insert => Self::Insert,
-            KeyCode::Esc => Self::Esc,
-            KeyCode::Char(ch) => Self::Char(ch),
-            KeyCode::F(n) => Self::F(n),
-            KeyCode::Null => Self::Null,
-            _ => return None,
-        })
-    }
-
-    pub(crate) fn to_crossterm(&self) -> crossterm::event::KeyCode {
-        use crossterm::event::KeyCode;
-        match self {
-            Self::Backspace => KeyCode::Backspace,
-            Self::Enter => KeyCode::Enter,
-            Self::Left => KeyCode::Left,
-            Self::Right => KeyCode::Right,
-            Self::Up => KeyCode::Up,
-            Self::Down => KeyCode::Down,
-            Self::Home => KeyCode::Home,
-            Self::End => KeyCode::End,
-            Self::PageUp => KeyCode::PageUp,
-            Self::PageDown => KeyCode::PageDown,
-            Self::Tab => KeyCode::Tab,
-            Self::BackTab => KeyCode::BackTab,
-            Self::Delete => KeyCode::Delete,
-            Self::Insert => KeyCode::Insert,
-            Self::Esc => KeyCode::Esc,
-            Self::Char(ch) => KeyCode::Char(*ch),
-            Self::F(n) => KeyCode::F(*n),
-            Self::Null => KeyCode::Null,
-        }
-    }
-}
-
-impl ClientMouseButton {
-    pub(crate) fn from_crossterm(button: crossterm::event::MouseButton) -> Self {
-        match button {
-            crossterm::event::MouseButton::Left => Self::Left,
-            crossterm::event::MouseButton::Right => Self::Right,
-            crossterm::event::MouseButton::Middle => Self::Middle,
-        }
-    }
-
-    pub(crate) fn to_crossterm(self) -> crossterm::event::MouseButton {
-        match self {
-            Self::Left => crossterm::event::MouseButton::Left,
-            Self::Right => crossterm::event::MouseButton::Right,
-            Self::Middle => crossterm::event::MouseButton::Middle,
-        }
-    }
-}
-
-impl ClientMouseKind {
-    pub(crate) fn from_crossterm(kind: crossterm::event::MouseEventKind) -> Option<Self> {
-        use crossterm::event::MouseEventKind;
-        Some(match kind {
-            MouseEventKind::Down(button) => Self::Down(ClientMouseButton::from_crossterm(button)),
-            MouseEventKind::Up(button) => Self::Up(ClientMouseButton::from_crossterm(button)),
-            MouseEventKind::Drag(button) => Self::Drag(ClientMouseButton::from_crossterm(button)),
-            MouseEventKind::Moved => Self::Moved,
-            MouseEventKind::ScrollUp => Self::ScrollUp,
-            MouseEventKind::ScrollDown => Self::ScrollDown,
-            MouseEventKind::ScrollLeft => Self::ScrollLeft,
-            MouseEventKind::ScrollRight => Self::ScrollRight,
-        })
-    }
-
-    pub(crate) fn to_crossterm(self) -> crossterm::event::MouseEventKind {
-        use crossterm::event::MouseEventKind;
-        match self {
-            Self::Down(button) => MouseEventKind::Down(button.to_crossterm()),
-            Self::Up(button) => MouseEventKind::Up(button.to_crossterm()),
-            Self::Drag(button) => MouseEventKind::Drag(button.to_crossterm()),
-            Self::Moved => MouseEventKind::Moved,
-            Self::ScrollUp => MouseEventKind::ScrollUp,
-            Self::ScrollDown => MouseEventKind::ScrollDown,
-            Self::ScrollLeft => MouseEventKind::ScrollLeft,
-            Self::ScrollRight => MouseEventKind::ScrollRight,
-        }
-    }
-}
-
-impl ClientPaneInputEvent {
-    pub(crate) fn from_terminal_key(key: crate::input::TerminalKey) -> Option<Self> {
-        let tracks_release = key.generated_text.is_none() || key.has_physical_identity();
-        let physical_key_id = key.physical_key_id();
-        let windows_record = key.windows_record();
-        Some(Self::Key {
-            code: ClientKeyCode::from_crossterm(key.code)?,
-            modifiers: key.modifiers.bits(),
-            kind: ClientKeyKind::from_crossterm(key.kind),
-            repeat_count: key.repeat_count,
-            shifted_codepoint: key.shifted_codepoint,
-            generated_text: key.generated_text,
-            tracks_release,
-            physical_key_id,
-            windows_record,
-        })
-    }
-
-    pub(crate) fn to_raw_input_event(&self) -> crate::raw_input::RawInputEvent {
-        self.to_raw_input_event_with_windows_source(cfg!(any(windows, test)))
-    }
-
-    fn to_raw_input_event_with_windows_source(
-        &self,
-        attach_windows_source: bool,
-    ) -> crate::raw_input::RawInputEvent {
-        match self {
-            Self::Key {
-                code,
-                modifiers,
-                kind,
-                repeat_count,
-                shifted_codepoint,
-                generated_text,
-                tracks_release,
-                windows_record,
-                ..
-            } => {
-                let mut key = crate::input::TerminalKey::new(
-                    code.to_crossterm(),
-                    crossterm::event::KeyModifiers::from_bits_truncate(*modifiers),
-                )
-                .with_kind(kind.to_crossterm())
-                .with_repeat_count(*repeat_count)
-                .with_generated_text(generated_text.clone())
-                .with_physical_identity_hint(*tracks_release && generated_text.is_some())
-                .with_windows_composition_hint(*windows_record);
-                if let Some(shifted_codepoint) = shifted_codepoint {
-                    key = key.with_shifted_codepoint(*shifted_codepoint);
-                }
-                #[cfg(any(windows, test))]
-                if attach_windows_source {
-                    if let Some(record) = windows_record {
-                        key = key.with_windows_record(*record);
-                    }
-                }
-                #[cfg(not(any(windows, test)))]
-                let _ = (attach_windows_source, windows_record);
-                crate::raw_input::RawInputEvent::Key(key)
-            }
-            Self::TextCommit(text) => {
-                crate::raw_input::RawInputEvent::Text(crate::input::TextCommit::new(text.clone()))
-            }
-            Self::Mouse {
-                kind,
-                position,
-                modifiers,
-                ..
-            } => {
-                let (column, row) = match position {
-                    ClientMousePosition::Cell { column, row }
-                    | ClientMousePosition::Pixels { column, row, .. } => (*column, *row),
-                };
-                crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
-                    kind: kind.to_crossterm(),
-                    column,
-                    row,
-                    modifiers: crossterm::event::KeyModifiers::from_bits_truncate(*modifiers),
-                })
-            }
-            Self::Paste(text) => crate::raw_input::RawInputEvent::Paste(text.clone()),
-        }
-    }
-}
-
-#[cfg(any(windows, test))]
-impl ClientInputEvent {
-    pub(crate) fn to_raw_input_event(&self) -> crate::raw_input::RawInputEvent {
-        match self {
-            Self::Key {
-                code,
-                modifiers,
-                kind,
-                repeat_count,
-                generated_text,
-                source,
-            } => {
-                let mut key = crate::input::TerminalKey::new(
-                    code.to_crossterm(),
-                    crossterm::event::KeyModifiers::from_bits_truncate(*modifiers),
-                )
-                .with_generated_text(generated_text.clone());
-                key = match source {
-                    ClientKeySource::Synthesized => key,
-                    ClientKeySource::Vt { bytes } => key.with_vt_bytes(bytes.clone()),
-                    ClientKeySource::WindowsConsole { record } => key.with_windows_record(*record),
-                };
-                key = key
-                    .with_repeat_count(*repeat_count)
-                    .with_kind(kind.to_crossterm());
-                crate::raw_input::RawInputEvent::Key(key)
-            }
-            Self::TextCommit(text) => {
-                crate::raw_input::RawInputEvent::Text(crate::input::TextCommit::new(text.clone()))
-            }
-            Self::Mouse {
-                kind,
-                column,
-                row,
-                modifiers,
-            } => crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
-                kind: kind.to_crossterm(),
-                column: *column,
-                row: *row,
-                modifiers: crossterm::event::KeyModifiers::from_bits_truncate(*modifiers),
-            }),
-            Self::Paste { text } => crate::raw_input::RawInputEvent::Paste(text.clone()),
-            Self::FocusGained => crate::raw_input::RawInputEvent::OuterFocusGained,
-            Self::FocusLost => crate::raw_input::RawInputEvent::OuterFocusLost,
-            Self::HostDefaultColor { kind, color } => {
-                crate::raw_input::RawInputEvent::HostDefaultColor {
-                    kind: match kind {
-                        ClientHostDefaultColorKind::Foreground => {
-                            crate::terminal_theme::DefaultColorKind::Foreground
-                        }
-                        ClientHostDefaultColorKind::Background => {
-                            crate::terminal_theme::DefaultColorKind::Background
-                        }
-                    },
-                    color: (*color).into(),
-                }
-            }
-        }
-    }
-}
+pub use crate::client::frame::ClientKeySource;
 
 /// Messages sent from the client to the server over the client protocol socket.
 ///
@@ -616,61 +232,13 @@ pub enum ClientMessage {
     EndpointControl { kind: String, data: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientHostColor {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
+pub use crate::client::frame::ClientHostDefaultColorKind;
 
-impl From<crate::terminal_theme::RgbColor> for ClientHostColor {
-    fn from(color: crate::terminal_theme::RgbColor) -> Self {
-        Self {
-            r: color.r,
-            g: color.g,
-            b: color.b,
-        }
-    }
-}
+pub use crate::client::frame::ClientHostAppearance;
 
-impl From<ClientHostColor> for crate::terminal_theme::RgbColor {
-    fn from(color: ClientHostColor) -> Self {
-        Self {
-            r: color.r,
-            g: color.g,
-            b: color.b,
-        }
-    }
-}
+pub use crate::client::frame::ClientHostThemeUpdate;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientHostDefaultColorKind {
-    Foreground,
-    Background,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientHostAppearance {
-    Dark,
-    Light,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientHostThemeUpdate {
-    DefaultColor {
-        kind: ClientHostDefaultColorKind,
-        color: ClientHostColor,
-    },
-    PaletteColors(Vec<(u8, ClientHostColor)>),
-    Appearance(ClientHostAppearance),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientClipboardImageTarget {
-    DirectTerminal,
-    Pane(String),
-    Popup(String),
-}
+pub use crate::client::frame::ClientClipboardImageTarget;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AttachScrollDirection {
@@ -691,206 +259,11 @@ pub enum AttachScrollSource {
 // Server → Client messages
 // ---------------------------------------------------------------------------
 
-/// A single cell in a rendered frame, serialized independently from ratatui's
-/// `Cell` type to keep the wire protocol stable.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub struct CellData {
-    /// Grapheme cluster displayed in this cell (usually 1–2 chars).
-    pub symbol: String,
-    /// Foreground color as a packed u32 (0xAARRGGBB or ratatui Color index).
-    pub fg: u32,
-    /// Background color as a packed u32.
-    pub bg: u32,
-    /// Bitmask of style modifiers (bold, italic, etc.) plus Herdr extension bits.
-    pub modifier: u16,
-    /// Whether this cell should be skipped during diff-based rendering.
-    pub skip: bool,
-    /// Index into `FrameData::hyperlinks` for this cell's OSC 8 target, if any.
-    pub hyperlink: Option<u32>,
-}
+pub use crate::client::frame::CellData;
 
-impl Clone for CellData {
-    fn clone(&self) -> Self {
-        Self {
-            symbol: self.symbol.clone(),
-            ..*self
-        }
-    }
+pub use crate::client::frame::CursorState;
 
-    fn clone_from(&mut self, source: &Self) {
-        let mut symbol = std::mem::take(&mut self.symbol);
-        symbol.clone_from(&source.symbol);
-        *self = Self { symbol, ..*source };
-    }
-}
-
-impl CellData {
-    pub(crate) fn from_ratatui_cell(cell: &ratatui::buffer::Cell) -> Self {
-        Self {
-            symbol: cell.symbol().to_owned(),
-            fg: color_to_u32(cell.fg),
-            bg: color_to_u32(cell.bg),
-            modifier: modifier_to_u16(cell.modifier),
-            skip: cell.skip,
-            hyperlink: None,
-        }
-    }
-}
-
-/// Cursor shape encoded as a DECSCUSR parameter.
-///
-/// 0 = terminal default, 1 = blinking block, 2 = steady block,
-/// 3 = blinking underline, 4 = steady underline, 5 = blinking bar,
-/// 6 = steady bar.
-pub type CursorShapeParam = u8;
-
-/// Cursor position within a rendered frame.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub struct CursorState {
-    /// Column offset (0-based) of the cursor.
-    pub x: u16,
-    /// Row offset (0-based) of the cursor.
-    pub y: u16,
-    /// Whether the cursor is visible.
-    pub visible: bool,
-    /// Cursor shape as a DECSCUSR parameter.
-    #[serde(default)]
-    pub shape: CursorShapeParam,
-}
-
-/// A rendered frame to be displayed by the client.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FrameData {
-    /// Cells in row-major order. Length must equal `width * height`.
-    pub cells: Vec<CellData>,
-    /// Frame width in columns.
-    pub width: u16,
-    /// Frame height in rows.
-    pub height: u16,
-    /// Cursor state for this frame, if applicable.
-    pub cursor: Option<CursorState>,
-    /// OSC 8 hyperlink URIs referenced by cells.
-    pub hyperlinks: Vec<String>,
-    /// Kitty graphics protocol bytes to apply after the text frame.
-    pub graphics: Vec<u8>,
-}
-
-impl FrameData {
-    /// Creates a `FrameData` from a ratatui `Buffer` and optional cursor.
-    ///
-    /// This converts ratatui's internal cell representation into the
-    /// wire-protocol cell format. The conversion is lossless for all
-    /// commonly used cell attributes.
-    #[cfg(test)]
-    pub fn from_ratatui_buffer(
-        buffer: &ratatui::buffer::Buffer,
-        cursor: Option<CursorState>,
-    ) -> Self {
-        Self::from_ratatui_buffer_with_hyperlinks(buffer, cursor, &[])
-    }
-
-    pub fn from_ratatui_buffer_with_hyperlinks(
-        buffer: &ratatui::buffer::Buffer,
-        cursor: Option<CursorState>,
-        hyperlinks: &[((u16, u16), String, String)],
-    ) -> Self {
-        let area = buffer.area;
-        let width = area.width;
-        let height = area.height;
-
-        let mut hyperlink_uris = Vec::<String>::new();
-        let mut hyperlink_indices = HashMap::<&str, u32>::new();
-        let mut hyperlink_by_position = HashMap::<(u16, u16), (&str, &str)>::new();
-        for ((x, y), symbol, uri) in hyperlinks {
-            hyperlink_by_position.insert((*x, *y), (symbol.as_str(), uri.as_str()));
-        }
-        let mut cells = Vec::with_capacity((width as usize) * (height as usize));
-        for row in 0..height {
-            for col in 0..width {
-                let cell = buffer.cell((col, row)).expect("cell within bounds");
-                let hyperlink = hyperlink_by_position
-                    .get(&(col, row))
-                    .and_then(|(symbol, uri)| {
-                        if *symbol != cell.symbol() {
-                            return None;
-                        }
-                        Some(*hyperlink_indices.entry(*uri).or_insert_with(|| {
-                            let index = hyperlink_uris.len() as u32;
-                            hyperlink_uris.push((*uri).to_owned());
-                            index
-                        }))
-                    });
-                let mut cell = CellData::from_ratatui_cell(cell);
-                cell.hyperlink = hyperlink;
-                cells.push(cell);
-            }
-        }
-
-        FrameData {
-            cells,
-            width,
-            height,
-            cursor,
-            hyperlinks: hyperlink_uris,
-            graphics: Vec::new(),
-        }
-    }
-
-    pub(crate) fn replace_from_ratatui_buffer_preserving_effects(
-        &mut self,
-        buffer: &ratatui::buffer::Buffer,
-        cursor: Option<CursorState>,
-    ) {
-        let width = self.width;
-        let hyperlinks = if width == 0 {
-            Vec::new()
-        } else {
-            self.cells
-                .iter()
-                .enumerate()
-                .filter_map(|(index, cell)| {
-                    let uri = self.hyperlinks.get(cell.hyperlink? as usize)?;
-                    let x = u16::try_from(index % usize::from(width)).ok()?;
-                    let y = u16::try_from(index / usize::from(width)).ok()?;
-                    Some(((x, y), cell.symbol.clone(), uri.clone()))
-                })
-                .collect::<Vec<_>>()
-        };
-        let graphics = std::mem::take(&mut self.graphics);
-        let mut replacement =
-            Self::from_ratatui_buffer_with_hyperlinks(buffer, cursor, &hyperlinks);
-        replacement.graphics = graphics;
-        *self = replacement;
-    }
-
-    /// Reconstructs a ratatui `Buffer` from this frame data.
-    ///
-    /// Returns `None` if the cells vector length doesn't match `width * height`.
-    pub(crate) fn to_ratatui_buffer(&self) -> Option<ratatui::buffer::Buffer> {
-        let expected = (self.width as usize) * (self.height as usize);
-        if self.cells.len() != expected {
-            return None;
-        }
-
-        let area = ratatui::layout::Rect::new(0, 0, self.width, self.height);
-        let mut buffer = ratatui::buffer::Buffer::filled(area, ratatui::buffer::Cell::new(" "));
-
-        for row in 0..self.height {
-            for col in 0..self.width {
-                let idx = (row as usize) * (self.width as usize) + (col as usize);
-                let cell_data = &self.cells[idx];
-                let cell = buffer.cell_mut((col, row)).expect("cell within bounds");
-                cell.set_symbol(&cell_data.symbol);
-                cell.fg = u32_to_color(cell_data.fg);
-                cell.bg = u32_to_color(cell_data.bg);
-                cell.modifier = u16_to_modifier(cell_data.modifier);
-                cell.skip = cell_data.skip;
-            }
-        }
-
-        Some(buffer)
-    }
-}
+pub use crate::client::frame::FrameData;
 
 fn deserialize_client_shell_agent_status<'de, D>(
     deserializer: D,
@@ -1085,241 +458,30 @@ pub struct ClientShellAgent {
     pub focused: bool,
 }
 
-/// Origin-relative geometry for one pane in a rendered pane surface.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub struct PaneSurfacePane {
-    pub pane_id: String,
-    pub content_revision: u64,
-    pub rect: SurfaceRect,
-    pub inner_rect: SurfaceRect,
-    pub scrollbar_rect: Option<SurfaceRect>,
-    pub scroll: Option<PaneSurfaceScrollMetrics>,
-    pub focused: bool,
-    pub mouse_reporting: bool,
-    pub sgr_pixel_mouse: bool,
-    pub alternate_screen_active: bool,
-    pub pixel_width: u32,
-    pub pixel_height: u32,
-}
+pub use crate::client::frame::PaneSurfacePane;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub struct PaneSurfaceScrollMetrics {
-    pub offset_from_bottom: u64,
-    pub max_offset_from_bottom: u64,
-    pub viewport_rows: u64,
-}
+pub use crate::client::frame::PaneSurfaceScrollMetrics;
 
-/// One draggable BSP split handle relative to a pane surface.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaneSurfaceSplit {
-    pub direction: PaneSurfaceSplitDirection,
-    pub pos: u16,
-    pub area: SurfaceRect,
-    pub hit_rect: SurfaceRect,
-    pub path: Vec<bool>,
-}
+pub use crate::client::frame::PaneSurfaceSplit;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub enum PaneSurfaceSplitDirection {
-    Horizontal,
-    Vertical,
-}
+pub use crate::client::frame::PaneSurfaceSplitDirection;
 
-/// Wire-safe rectangle relative to a pane surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub struct SurfaceRect {
-    pub x: u16,
-    pub y: u16,
-    pub width: u16,
-    pub height: u16,
-}
+pub use crate::client::frame::SurfaceRect;
 
-impl From<ratatui::layout::Rect> for SurfaceRect {
-    fn from(rect: ratatui::layout::Rect) -> Self {
-        Self {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-        }
-    }
-}
+pub use crate::kitty_graphics::model::{
+    SurfaceGraphicsAsset, SurfaceGraphicsAssetKey, SurfaceGraphicsFormat, SurfaceGraphicsPlacement,
+    SurfaceGraphicsScene, SurfaceGraphicsSource, SurfaceGraphicsTarget,
+};
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub enum SurfaceGraphicsTarget {
-    Pane { pane_id: String },
-    Popup { terminal_id: String },
-}
+pub use crate::client::frame::PaneSurfaceFrame;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub enum SurfaceGraphicsSource {
-    Terminal {
-        target: SurfaceGraphicsTarget,
-        image_id: u32,
-    },
-    PaneLayer {
-        pane_id: String,
-        layer_id: String,
-    },
-}
+pub use crate::client::frame::ClientShellPopupSize;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub enum SurfaceGraphicsFormat {
-    Rgb,
-    Rgba,
-    Png,
-}
+pub use crate::client::frame::PaneSurfacePatchRow;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub struct SurfaceGraphicsAssetKey {
-    pub source: SurfaceGraphicsSource,
-    pub image_width: u32,
-    pub image_height: u32,
-    pub format: SurfaceGraphicsFormat,
-    pub data_len: u64,
-    pub data_fingerprint: u64,
-}
+pub use crate::client::frame::PaneSurfacePatch;
 
-/// Image bytes newly needed by this connection's complete desired scene.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SurfaceGraphicsAsset {
-    pub key: SurfaceGraphicsAssetKey,
-    #[serde(
-        serialize_with = "serialize_graphics_bytes",
-        deserialize_with = "deserialize_graphics_bytes"
-    )]
-    pub data: Vec<u8>,
-}
-
-fn serialize_graphics_bytes<S: serde::Serializer>(
-    data: &[u8],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    // Bincode's byte slice has the same length+bytes layout as Vec<u8>,
-    // but avoids per-byte serialization. Keep human-readable codecs unchanged.
-    if serializer.is_human_readable() {
-        data.serialize(serializer)
-    } else {
-        serializer.serialize_bytes(data)
-    }
-}
-
-fn deserialize_graphics_bytes<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<u8>, D::Error> {
-    if deserializer.is_human_readable() {
-        return Vec::<u8>::deserialize(deserializer);
-    }
-
-    struct BytesVisitor;
-    impl<'de> serde::de::Visitor<'de> for BytesVisitor {
-        type Value = Vec<u8>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("image bytes")
-        }
-
-        fn visit_bytes<E: serde::de::Error>(self, bytes: &[u8]) -> Result<Self::Value, E> {
-            Ok(bytes.to_vec())
-        }
-
-        fn visit_byte_buf<E: serde::de::Error>(self, bytes: Vec<u8>) -> Result<Self::Value, E> {
-            Ok(bytes)
-        }
-    }
-
-    // The framed slice decoder checks the length against available input before
-    // handing bytes to the visitor, so a forged length cannot cause an allocation.
-    deserializer.deserialize_bytes(BytesVisitor)
-}
-
-/// One already-clipped desired placement relative to its target surface.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub struct SurfaceGraphicsPlacement {
-    pub asset: SurfaceGraphicsAssetKey,
-    pub logical_placement_id: u32,
-    pub x: u16,
-    pub y: u16,
-    pub cols: u32,
-    pub rows: u32,
-    pub source_x: u32,
-    pub source_y: u32,
-    pub source_width: u32,
-    pub source_height: u32,
-    pub x_offset: u32,
-    pub y_offset: u32,
-    pub z: i32,
-    pub scrollback_offset: u32,
-}
-
-/// Complete desired placements plus only the image bytes not already sent for
-/// the current live scene on this connection.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SurfaceGraphicsScene {
-    pub assets: Vec<SurfaceGraphicsAsset>,
-    pub placements: Vec<SurfaceGraphicsPlacement>,
-    /// Direct-uploaded assets that remain live for this client even while their
-    /// pane is outside the selected scene.
-    pub retained_assets: Vec<SurfaceGraphicsAssetKey>,
-}
-
-/// One server-rendered active-tab surface without sidebar, tab bar, or overlays.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaneSurfaceFrame {
-    /// Endpoint process identity that produced this surface.
-    pub boot_id: String,
-    /// Projection revision whose focused IDs and topology produced this surface.
-    pub projection_revision: u64,
-    /// Monotonic revision for full surfaces and incremental patches on one connection.
-    pub surface_revision: u64,
-    pub frame: FrameData,
-    pub panes: Vec<PaneSurfacePane>,
-    pub splits: Vec<PaneSurfaceSplit>,
-    pub popup: Option<Box<ClientShellPopupSurface>>,
-    pub graphics: SurfaceGraphicsScene,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Decode)]
-pub enum ClientShellPopupSize {
-    Cells(u16),
-    Percent(u8),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaneSurfacePatchRow {
-    /// Origin-relative surface column where this changed cell span starts.
-    pub x: u16,
-    /// Origin-relative surface row.
-    pub y: u16,
-    pub cells: Vec<CellData>,
-}
-
-/// Incremental terminal-cell update against one committed complete pane surface.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaneSurfacePatch {
-    pub boot_id: String,
-    pub projection_revision: u64,
-    pub base_surface_revision: u64,
-    pub surface_revision: u64,
-    pub rows: Vec<PaneSurfacePatchRow>,
-    /// Updated metadata for panes whose terminal content changed.
-    pub panes: Vec<PaneSurfacePane>,
-    /// Final cursor relative to the pane surface.
-    pub cursor: Option<CursorState>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientShellPopupSurface {
-    pub terminal_id: String,
-    pub title: String,
-    pub width: Option<ClientShellPopupSize>,
-    pub height: Option<ClientShellPopupSize>,
-    pub frame: FrameData,
-    pub mouse_reporting: bool,
-    pub sgr_pixel_mouse: bool,
-    pub pixel_width: u32,
-    pub pixel_height: u32,
-}
+pub use crate::client::frame::ClientShellPopupSurface;
 
 /// Terminal ANSI bytes encoded by the server for network-efficient clients.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1347,34 +509,11 @@ pub enum NotifyKind {
     SystemToast,
 }
 
-/// A client-rendered notification category. The server reports the semantic
-/// event; each connected shell client chooses how (or whether) to present it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SemanticNotificationKind {
-    NeedsAttention,
-    Finished,
-    UpdateInstalled,
-    Custom,
-}
+pub use crate::client::frame::SemanticNotificationKind;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SemanticNotificationSound {
-    Done,
-    Request,
-}
+pub use crate::client::frame::SemanticNotificationSound;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SemanticNotification {
-    pub kind: SemanticNotificationKind,
-    pub title: String,
-    pub body: Option<String>,
-    pub sound: Option<SemanticNotificationSound>,
-    pub agent: Option<String>,
-    pub workspace_id: Option<String>,
-    pub tab_id: Option<String>,
-    pub pane_id: Option<String>,
-    pub position: Option<crate::config::ToastHerdrPosition>,
-}
+pub use crate::client::frame::SemanticNotification;
 
 /// Messages sent from the server to the client over the client protocol socket.
 ///
@@ -1507,96 +646,11 @@ pub enum ServerMessage {
 // Color / Modifier conversion helpers
 // ---------------------------------------------------------------------------
 
-/// Converts a ratatui `Color` to a packed u32 for wire transport.
-///
-/// Encoding:
-/// - Named colors (Reset, Black, …, White) → `0x00_00_00_XX` where XX is 0..=16
-/// - Indexed palette → `0x01_00_00_XX` where XX is the palette index
-/// - RGB → `0x02_RR_GG_BB` with components in the lower 3 bytes
-pub(crate) fn color_to_u32(color: ratatui::style::Color) -> u32 {
-    match color {
-        ratatui::style::Color::Reset => 0x00_00_00_00,
-        ratatui::style::Color::Black => 0x00_00_00_01,
-        ratatui::style::Color::Red => 0x00_00_00_02,
-        ratatui::style::Color::Green => 0x00_00_00_03,
-        ratatui::style::Color::Yellow => 0x00_00_00_04,
-        ratatui::style::Color::Blue => 0x00_00_00_05,
-        ratatui::style::Color::Magenta => 0x00_00_00_06,
-        ratatui::style::Color::Cyan => 0x00_00_00_07,
-        ratatui::style::Color::Gray => 0x00_00_00_08,
-        ratatui::style::Color::DarkGray => 0x00_00_00_09,
-        ratatui::style::Color::LightRed => 0x00_00_00_0A,
-        ratatui::style::Color::LightGreen => 0x00_00_00_0B,
-        ratatui::style::Color::LightYellow => 0x00_00_00_0C,
-        ratatui::style::Color::LightBlue => 0x00_00_00_0D,
-        ratatui::style::Color::LightMagenta => 0x00_00_00_0E,
-        ratatui::style::Color::LightCyan => 0x00_00_00_0F,
-        ratatui::style::Color::White => 0x00_00_00_10,
-        ratatui::style::Color::Indexed(i) => 0x01_00_00_00 | (i as u32),
-        ratatui::style::Color::Rgb(r, g, b) => {
-            0x02_00_00_00 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
-        }
-    }
-}
+pub use crate::client::frame::color_to_u32;
 
-/// Converts a packed u32 back to a ratatui `Color`.
-fn u32_to_color(val: u32) -> ratatui::style::Color {
-    match val >> 24 {
-        0x00 => match val & 0xFF {
-            0x00 => ratatui::style::Color::Reset,
-            0x01 => ratatui::style::Color::Black,
-            0x02 => ratatui::style::Color::Red,
-            0x03 => ratatui::style::Color::Green,
-            0x04 => ratatui::style::Color::Yellow,
-            0x05 => ratatui::style::Color::Blue,
-            0x06 => ratatui::style::Color::Magenta,
-            0x07 => ratatui::style::Color::Cyan,
-            0x08 => ratatui::style::Color::Gray,
-            0x09 => ratatui::style::Color::DarkGray,
-            0x0A => ratatui::style::Color::LightRed,
-            0x0B => ratatui::style::Color::LightGreen,
-            0x0C => ratatui::style::Color::LightYellow,
-            0x0D => ratatui::style::Color::LightBlue,
-            0x0E => ratatui::style::Color::LightMagenta,
-            0x0F => ratatui::style::Color::LightCyan,
-            0x10 => ratatui::style::Color::White,
-            _ => ratatui::style::Color::Reset, // unknown named → Reset
-        },
-        0x01 => ratatui::style::Color::Indexed((val & 0xFF) as u8),
-        0x02 => {
-            let r = ((val >> 16) & 0xFF) as u8;
-            let g = ((val >> 8) & 0xFF) as u8;
-            let b = (val & 0xFF) as u8;
-            ratatui::style::Color::Rgb(r, g, b)
-        }
-        _ => ratatui::style::Color::Reset, // unknown tag → Reset
-    }
-}
+pub use crate::client::frame::modifier_to_u16;
 
-const UNDERLINE_STYLE_SHIFT: u16 = 12;
-const UNDERLINE_STYLE_MASK: u16 = 0xF000;
-
-/// Converts a ratatui `Modifier` bitmask to a u16 for wire transport.
-pub(crate) fn modifier_to_u16(modifier: ratatui::style::Modifier) -> u16 {
-    modifier.bits()
-}
-
-pub(crate) fn underline_style_from_modifier(modifier: u16) -> u8 {
-    ((modifier & UNDERLINE_STYLE_MASK) >> UNDERLINE_STYLE_SHIFT) as u8
-}
-
-pub(crate) fn modifier_with_underline_style(
-    modifier: ratatui::style::Modifier,
-    underline_style: u8,
-) -> ratatui::style::Modifier {
-    let bits = modifier.bits() | ((u16::from(underline_style) & 0x0F) << UNDERLINE_STYLE_SHIFT);
-    ratatui::style::Modifier::from_bits_retain(bits)
-}
-
-/// Converts a u16 back to a ratatui `Modifier`.
-fn u16_to_modifier(val: u16) -> ratatui::style::Modifier {
-    ratatui::style::Modifier::from_bits_truncate(val & !UNDERLINE_STYLE_MASK)
-}
+pub(crate) use crate::client::frame::modifier_with_underline_style;
 
 // ---------------------------------------------------------------------------
 // Framing: length-prefixed binary messages
@@ -1833,7 +887,10 @@ mod tests {
     #[test]
     fn graphics_bulk_decode_rejects_truncated_and_forged_lengths() {
         #[derive(Debug, Deserialize)]
-        struct Bytes(#[serde(deserialize_with = "deserialize_graphics_bytes")] Vec<u8>);
+        struct Bytes(
+            #[serde(deserialize_with = "crate::kitty_graphics::model::deserialize_graphics_bytes")]
+            Vec<u8>,
+        );
         let config = bincode::config::standard();
         let original: Vec<u8> = (0..=255).collect();
         let encoded = bincode::serde::encode_to_vec(&original, config).unwrap();
@@ -2167,7 +1224,9 @@ mod tests {
         };
         assert_eq!(semantic.shifted_codepoint, Some('L' as u32));
         assert_eq!(semantic.kind, crossterm::event::KeyEventKind::Release);
-        let crate::raw_input::RawInputEvent::Key(key) = events[1].to_raw_input_event() else {
+        let crate::raw_input::RawInputEvent::Key(key) =
+            events[1].to_raw_input_event_with_windows_source(true)
+        else {
             panic!("expected Windows key");
         };
         assert_eq!(key.code, crossterm::event::KeyCode::Char('7'));

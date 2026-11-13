@@ -5,7 +5,7 @@ fn endpoint_product_announcement_is_client_rendered_modal_and_dismissed_by_ident
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
+        Some(crate::client::ui_model::ClientShellProductAnnouncement {
             version: "0.8.2".into(),
             id: "client-shell".into(),
             title: "A client-owned announcement".into(),
@@ -48,7 +48,7 @@ fn endpoint_product_announcement_is_client_rendered_modal_and_dismissed_by_ident
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ProductAnnouncement(
-            crate::app::state::ProductAnnouncementState { scroll: 11, .. }
+            crate::client::ui_state::ProductAnnouncementState { scroll: 11, .. }
         ))
     ));
     let repeated = state.handle_raw_events(vec![RawInputEvent::Key(
@@ -59,7 +59,7 @@ fn endpoint_product_announcement_is_client_rendered_modal_and_dismissed_by_ident
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ProductAnnouncement(
-            crate::app::state::ProductAnnouncementState { scroll: 11, .. }
+            crate::client::ui_state::ProductAnnouncementState { scroll: 11, .. }
         ))
     ));
 
@@ -70,7 +70,7 @@ fn endpoint_product_announcement_is_client_rendered_modal_and_dismissed_by_ident
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::ProductAnnouncementDismiss(params)
+                crate::client::ui_action::FrontendCommand::ProductAnnouncementDismiss(params)
                     if params.version == "0.8.2" && params.id == "client-shell"
             )
     ));
@@ -100,7 +100,7 @@ fn failed_product_announcement_dismiss_reopens_authoritative_snapshot() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
+        Some(crate::client::ui_model::ClientShellProductAnnouncement {
             version: "0.8.2".into(),
             id: "client-shell".into(),
             title: "Client shell".into(),
@@ -136,7 +136,7 @@ fn release_notes_reconcile_and_failed_dismiss_reopens_authoritative_snapshot() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.latest_release_notes_available = true;
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.3".into(),
         body: "first notes".into(),
         preview: true,
@@ -144,7 +144,7 @@ fn release_notes_reconcile_and_failed_dismiss_reopens_authoritative_snapshot() {
     state.set_snapshot(Box::new(endpoint_snapshot.clone()));
     state.open_release_notes();
 
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.4".into(),
         body: "second notes".into(),
         preview: true,
@@ -153,7 +153,7 @@ fn release_notes_reconcile_and_failed_dismiss_reopens_authoritative_snapshot() {
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ReleaseNotes(
-            crate::app::state::ReleaseNotesState { ref version, .. }
+            crate::client::ui_state::ReleaseNotesState { ref version, .. }
         )) if version == "0.8.4"
     ));
 
@@ -162,7 +162,7 @@ fn release_notes_reconcile_and_failed_dismiss_reopens_authoritative_snapshot() {
         [ClientShellAction::Endpoint { request, .. }] => request.id.clone(),
         actions => panic!("unexpected actions: {actions:?}"),
     };
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.5".into(),
         body: "current notes".into(),
         preview: true,
@@ -182,7 +182,7 @@ fn release_notes_reconcile_and_failed_dismiss_reopens_authoritative_snapshot() {
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ReleaseNotes(
-            crate::app::state::ReleaseNotesState { ref version, .. }
+            crate::client::ui_state::ReleaseNotesState { ref version, .. }
         )) if version == "0.8.5"
     ));
 }
@@ -192,7 +192,7 @@ fn product_announcement_mouse_is_modal_and_closes_only_from_its_button() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
+        Some(crate::client::ui_model::ClientShellProductAnnouncement {
             version: "0.8.2".into(),
             id: "client-shell".into(),
             title: "Client shell".into(),
@@ -248,7 +248,7 @@ fn product_announcement_mouse_is_modal_and_closes_only_from_its_button() {
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ProductAnnouncement(
-            crate::app::state::ProductAnnouncementState { scroll, .. }
+            crate::client::ui_state::ProductAnnouncementState { scroll, .. }
         )) if usize::from(scroll) == state.hits.product_announcement_max_scroll
     ));
 
@@ -264,7 +264,7 @@ fn product_announcement_mouse_is_modal_and_closes_only_from_its_button() {
     assert!(matches!(
         &closed.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::ProductAnnouncementDismiss(_))
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::ProductAnnouncementDismiss(_))
     ));
 }
 
@@ -274,7 +274,7 @@ fn onboarding_has_priority_over_endpoint_product_announcement() {
     let mut state = ClientShellState::new(config);
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.product_announcement =
-        Some(crate::protocol::ClientShellProductAnnouncement {
+        Some(crate::client::ui_model::ClientShellProductAnnouncement {
             version: "0.8.2".into(),
             id: "client-shell".into(),
             title: "Hidden until a later launch".into(),
@@ -405,7 +405,7 @@ fn onboarding_completion_persists_and_opens_endpoint_integrations() {
     assert!(matches!(
         &outcome.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::IntegrationList(_))
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::IntegrationList(_))
     ));
     let persisted = std::fs::read_to_string(&path).expect("read onboarding config");
     assert!(persisted.contains("onboarding = false"));
@@ -561,6 +561,7 @@ fn config_diagnostic_offsets_only_the_pane_rows_it_overlaps() {
     state.set_snapshot(Box::new(endpoint_snapshot));
     state.set_pane_surface(surface());
     state.visible_notification = Some(ClientVisibleNotification {
+        runtime_target: None,
         endpoint_id: ClientEndpointId::Local,
         event: SemanticNotification {
             kind: SemanticNotificationKind::Custom,
@@ -623,7 +624,7 @@ fn endpoint_reload_result_does_not_override_snapshot_diagnostic_authority() {
     state.handle_endpoint_result(
         "boot-1",
         "reload-1",
-        Ok(crate::api::schema::ResponseResult::ConfigReload {
+        Ok(crate::client::ui_domain::ResponseResult::ConfigReload {
             status: crate::config::ConfigReloadStatus::Partial,
             diagnostics: vec!["keybinding warning".into()],
         }),
@@ -665,7 +666,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.update_available = Some("0.8.3".into());
     endpoint_snapshot.latest_release_notes_available = true;
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.3".into(),
         body: (0..40)
             .map(|index| format!("- release line {index}"))
@@ -835,7 +836,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ReleaseNotes(
-            crate::app::state::ReleaseNotesState { scroll, .. }
+            crate::client::ui_state::ReleaseNotesState { scroll, .. }
         )) if usize::from(scroll) == state.hits.release_notes_max_scroll
     ));
     if let Some(ClientShellOverlay::ReleaseNotes(notes)) = state.overlay.as_mut() {
@@ -850,7 +851,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ReleaseNotes(
-            crate::app::state::ReleaseNotesState { scroll: 3, .. }
+            crate::client::ui_state::ReleaseNotesState { scroll: 3, .. }
         ))
     ));
     let repeated = state.handle_raw_events(vec![RawInputEvent::Key(
@@ -861,7 +862,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ReleaseNotes(
-            crate::app::state::ReleaseNotesState { scroll: 3, .. }
+            crate::client::ui_state::ReleaseNotesState { scroll: 3, .. }
         ))
     ));
     let dismissed = state.handle_input_bytes(b"\r");
@@ -872,7 +873,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::ReleaseNotesDismiss(params)
+                crate::client::ui_action::FrontendCommand::ReleaseNotesDismiss(params)
                     if params.version == "0.8.3"
             )
     ));
@@ -909,7 +910,7 @@ fn coalesced_release_notes_open_and_scroll_uses_current_geometry() {
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.update_available = Some("0.8.3".into());
     endpoint_snapshot.latest_release_notes_available = true;
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.3".into(),
         body: (0..40)
             .map(|index| format!("- release line {index}"))
@@ -921,6 +922,8 @@ fn coalesced_release_notes_open_and_scroll_uses_current_geometry() {
     state.set_pane_surface(surface());
     state.compose(106, 30).expect("initial shell");
     state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
+        stop_target: None,
+        stop_label: None,
         highlighted: 3,
     }));
 
@@ -938,7 +941,7 @@ fn coalesced_release_notes_open_and_scroll_uses_current_geometry() {
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ReleaseNotes(
-            crate::app::state::ReleaseNotesState { scroll: 8, .. }
+            crate::client::ui_state::ReleaseNotesState { scroll: 8, .. }
         ))
     ));
 }
@@ -953,7 +956,7 @@ fn coalesced_release_notes_open_and_mouse_uses_current_geometry() {
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.update_available = Some("0.8.3".into());
     endpoint_snapshot.latest_release_notes_available = true;
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.3".into(),
         body: body.clone(),
         preview: true,
@@ -970,7 +973,7 @@ fn coalesced_release_notes_open_and_mouse_uses_current_geometry() {
     .expect("release notes outer");
     let inner = Rect::new(outer.x + 1, outer.y + 1, outer.width - 2, outer.height - 2);
     let stack = crate::ui::modal_stack_areas(inner, 2, 1, 0, 1);
-    let notes = crate::app::state::ReleaseNotesState {
+    let notes = crate::client::ui_state::ReleaseNotesState {
         version: "0.8.3".into(),
         body,
         scroll: 0,
@@ -992,6 +995,8 @@ fn coalesced_release_notes_open_and_mouse_uses_current_geometry() {
     ));
 
     state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
+        stop_target: None,
+        stop_label: None,
         highlighted: 3,
     }));
     state.handle_raw_events(vec![
@@ -1009,11 +1014,13 @@ fn coalesced_release_notes_open_and_mouse_uses_current_geometry() {
     assert!(matches!(
         state.overlay,
         Some(ClientShellOverlay::ReleaseNotes(
-            crate::app::state::ReleaseNotesState { scroll, .. }
+            crate::client::ui_state::ReleaseNotesState { scroll, .. }
         )) if scroll > 0
     ));
 
     state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
+        stop_target: None,
+        stop_label: None,
         highlighted: 3,
     }));
     let closed = state.handle_raw_events(vec![
@@ -1032,7 +1039,7 @@ fn coalesced_release_notes_open_and_mouse_uses_current_geometry() {
     assert!(matches!(
         &closed.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::ReleaseNotesDismiss(_))
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::ReleaseNotesDismiss(_))
     ));
 }
 
@@ -1095,7 +1102,7 @@ fn combined_update_and_integration_attention_preserves_both_badges() {
     endpoint_snapshot.update_available = Some("0.8.3".into());
     endpoint_snapshot.latest_release_notes_available = true;
     endpoint_snapshot.integration_updates_available = true;
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.3".into(),
         body: "### Changed\n- Both attention states".into(),
         preview: true,
@@ -1132,7 +1139,7 @@ fn current_release_notes_use_whats_new_without_attention_badge() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let mut endpoint_snapshot = snapshot();
     endpoint_snapshot.latest_release_notes_available = true;
-    endpoint_snapshot.release_notes = Some(crate::protocol::ClientShellReleaseNotes {
+    endpoint_snapshot.release_notes = Some(crate::client::ui_model::ClientShellReleaseNotes {
         version: "0.8.2".into(),
         body: "### Changed\n- Client shell".into(),
         preview: false,
@@ -1157,6 +1164,8 @@ fn client_settings_preview_restore_and_endpoint_integrations_are_owned_by_overla
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
+        stop_target: None,
+        stop_label: None,
         highlighted: 0,
     }));
     let open = state.handle_input_bytes(b"\r");
@@ -1206,7 +1215,7 @@ fn client_settings_preview_restore_and_endpoint_integrations_are_owned_by_overla
     };
     assert!(matches!(
         request.method,
-        crate::api::schema::Method::IntegrationList(_)
+        crate::client::ui_action::FrontendCommand::IntegrationList(_)
     ));
     let request_id = request.id.clone();
     assert!(
@@ -1214,7 +1223,7 @@ fn client_settings_preview_restore_and_endpoint_integrations_are_owned_by_overla
             .handle_endpoint_result(
                 "boot-1",
                 &request_id,
-                Ok(crate::api::schema::ResponseResult::IntegrationList {
+                Ok(crate::client::ui_domain::ResponseResult::IntegrationList {
                     integrations: vec![
                         crate::api::schema::IntegrationInfo {
                             target: crate::api::schema::IntegrationTarget::Codex,
@@ -1271,7 +1280,7 @@ fn client_settings_preview_restore_and_endpoint_integrations_are_owned_by_overla
         ClientShellAction::Endpoint { request, .. }
             if matches!(
                 request.method,
-                crate::api::schema::Method::IntegrationInstall(
+                crate::client::ui_action::FrontendCommand::IntegrationInstall(
                     crate::api::schema::IntegrationInstallParams {
                         target: crate::api::schema::IntegrationTarget::Codex
                     }
@@ -1291,18 +1300,20 @@ fn client_settings_preview_restore_and_endpoint_integrations_are_owned_by_overla
     let (repaint, refresh_actions) = state.handle_endpoint_result(
         "boot-1",
         &install_request_id,
-        Ok(crate::api::schema::ResponseResult::IntegrationInstall {
-            target: crate::api::schema::IntegrationTarget::Codex,
-            details: crate::api::schema::IntegrationInstallResult {
-                messages: vec!["installed codex".into()],
+        Ok(
+            crate::client::ui_domain::ResponseResult::IntegrationInstall {
+                target: crate::api::schema::IntegrationTarget::Codex,
+                details: crate::api::schema::IntegrationInstallResult {
+                    messages: vec!["installed codex".into()],
+                },
             },
-        }),
+        ),
     );
     assert!(repaint);
     assert!(matches!(
         refresh_actions.as_slice(),
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::IntegrationList(_))
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::IntegrationList(_))
     ));
     assert!(matches!(
         state.overlay,

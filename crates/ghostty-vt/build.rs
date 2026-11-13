@@ -76,6 +76,7 @@ fn main() {
         .arg("--prefix")
         .arg(&zig_prefix)
         .arg("-Demit-lib-vt")
+        .arg("-Demit-themes=false")
         .arg(format!("-Doptimize={optimize}"))
         .arg(format!("-Dsimd={simd}"))
         .arg(format!("-Dtarget={zig_target}"))

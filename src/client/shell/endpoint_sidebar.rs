@@ -43,7 +43,7 @@ pub(super) fn render_collapsed(
                         .map(|index| total_rows + index);
                 }
             }
-            total_rows += snapshot.workspaces.len();
+            total_rows += snapshot.workspaces.len() + snapshot.available_checkouts.len();
         }
     }
     let height = usize::from(workspace_area.height);
@@ -195,6 +195,32 @@ pub(super) fn render_collapsed(
             });
             y = y.saturating_add(1);
         }
+        for checkout in &snapshot.available_checkouts {
+            if skip > 0 {
+                skip -= 1;
+                continue;
+            }
+            if y >= workspace_area.bottom() {
+                break;
+            }
+            let rect = Rect::new(workspace_area.x, y, workspace_area.width, 1);
+            let glyph = status_icon(checkout.agent_status, config.status_indicators);
+            put_text(
+                buffer,
+                rect.x,
+                rect.y,
+                rect.width,
+                &format!(" {glyph}"),
+                Style::default().fg(status_color(checkout.agent_status, palette)),
+            );
+            hits.available_checkouts.push(CheckoutHit {
+                rect,
+                endpoint_id: endpoint.endpoint_id.clone(),
+                checkout: std::sync::Arc::clone(checkout),
+                group_toggle: None,
+            });
+            y = y.saturating_add(1);
+        }
     }
     if let Some(divider_y) = divider_y {
         put_text(
@@ -250,9 +276,9 @@ pub(super) fn render_expanded(
         Rect::new(area.right().saturating_sub(1), area.y, 1, area.height)
     };
     let (workspace_area, detail_area) =
-        crate::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
+        crate::client::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
     hits.sidebar_section_divider =
-        crate::ui::sidebar_section_divider_rect(area, state.sidebar_section_split);
+        crate::client::ui::sidebar_section_divider_rect(area, state.sidebar_section_split);
     put_text(
         buffer,
         workspace_area.x,
@@ -268,6 +294,13 @@ pub(super) fn render_expanded(
 
     enum Row {
         Endpoint(usize),
+        Checkout {
+            endpoint: usize,
+            checkout: std::sync::Arc<ClientShellAvailableCheckout>,
+            indented: bool,
+            last_child: bool,
+            group_key: Option<String>,
+        },
         Workspace {
             endpoint: usize,
             entry: WorkspaceEntry,
@@ -283,11 +316,25 @@ pub(super) fn render_expanded(
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
             rows.extend(
-                super::sidebar::workspace_entries(snapshot, collapsed_groups)
+                super::checkouts::tree_entries(snapshot, collapsed_groups)
                     .into_iter()
-                    .map(|entry| Row::Workspace {
-                        endpoint: endpoint_index,
-                        entry,
+                    .map(|entry| match entry {
+                        super::checkouts::SidebarTreeEntry::Workspace(entry) => Row::Workspace {
+                            endpoint: endpoint_index,
+                            entry,
+                        },
+                        super::checkouts::SidebarTreeEntry::Checkout {
+                            checkout,
+                            indented,
+                            last_child,
+                            group_key,
+                        } => Row::Checkout {
+                            endpoint: endpoint_index,
+                            checkout,
+                            indented,
+                            last_child,
+                            group_key,
+                        },
                     }),
             );
         }
@@ -305,6 +352,12 @@ pub(super) fn render_expanded(
         .iter()
         .map(|row| match row {
             Row::Endpoint(_) => 1,
+            Row::Checkout {
+                checkout, indented, ..
+            } => super::checkouts::checkout_rows(checkout, *indented, &config.spaces)
+                .len()
+                .max(1)
+                .min(u16::MAX as usize) as u16,
             Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
                 let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
@@ -337,15 +390,23 @@ pub(super) fn render_expanded(
     let gaps = rows
         .iter()
         .enumerate()
-        .map(|(index, row)| match (row, rows.get(index + 1)) {
-            (
-                Row::Workspace { endpoint, .. },
+        .map(|(index, row)| {
+            let endpoint = match row {
+                Row::Workspace { endpoint, .. } | Row::Checkout { endpoint, .. } => Some(endpoint),
+                _ => None,
+            };
+            match rows.get(index + 1) {
                 Some(Row::Workspace {
-                    endpoint: next_endpoint,
+                    endpoint: next,
                     entry,
-                }),
-            ) if endpoint == next_endpoint => u16::from(!entry.indented) * config.spaces.row_gap,
-            _ => 0,
+                }) if endpoint == Some(next) => u16::from(!entry.indented) * config.spaces.row_gap,
+                Some(Row::Checkout {
+                    endpoint: next,
+                    indented,
+                    ..
+                }) if endpoint == Some(next) => u16::from(!indented) * config.spaces.row_gap,
+                _ => 0,
+            }
         })
         .collect::<Vec<_>>();
     let reveal_navigation = !body.is_empty() && std::mem::take(state.reveal_navigation_workspace);
@@ -372,7 +433,7 @@ pub(super) fn render_expanded(
                         }
                     })
             }
-            Row::Endpoint(_) => false,
+            Row::Endpoint(_) | Row::Checkout { .. } => false,
         });
         if let Some(selected_row) = selected_row {
             *state.workspace_scroll = super::scroll::list_scroll_start_to_reveal(
@@ -430,6 +491,65 @@ pub(super) fn render_expanded(
                 });
                 y = y
                     .saturating_add(1)
+                    .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
+            }
+            Row::Checkout {
+                endpoint,
+                checkout,
+                indented,
+                last_child,
+                group_key,
+            } => {
+                let endpoint = &state.endpoints[*endpoint];
+                let tokens = super::checkouts::checkout_rows(checkout, *indented, &config.spaces);
+                let height = (tokens.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
+                if y.saturating_add(height) > body.bottom() {
+                    break;
+                }
+                let rect = Rect::new(body.x, y, content_width, height);
+                let nested = Rect::new(
+                    rect.x.saturating_add(2),
+                    rect.y,
+                    rect.width.saturating_sub(2),
+                    rect.height,
+                );
+                super::sidebar::render_tree_rows(
+                    buffer,
+                    nested,
+                    checkout.agent_status,
+                    config.status_indicators,
+                    &super::sidebar::WorkspaceRowGeometry {
+                        indented: *indented,
+                        last_child: *last_child,
+                    },
+                    tokens,
+                    false,
+                    false,
+                    false,
+                    false,
+                    palette,
+                );
+                if endpoint.status != ClientEndpointStatus::Online || checkout.error.is_some() {
+                    buffer.set_style(
+                        rect,
+                        Style::default()
+                            .fg(palette.overlay0)
+                            .add_modifier(Modifier::DIM),
+                    );
+                }
+                let groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
+                    .unwrap_or(&empty_collapsed_groups);
+                let group_toggle = group_key.as_ref().and_then(|key| {
+                    super::sidebar::render_group_toggle(buffer, rect, key.clone(), groups, palette)
+                });
+                hits.available_checkouts.push(CheckoutHit {
+                    rect,
+                    endpoint_id: endpoint.endpoint_id.clone(),
+                    checkout: std::sync::Arc::clone(checkout),
+                    group_toggle,
+                });
+                y = y
+                    .saturating_add(height)
                     .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
             }
             Row::Workspace { endpoint, entry } => {

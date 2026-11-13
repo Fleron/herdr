@@ -1,3 +1,6 @@
+#[path = "legacy_binary/mod.rs"]
+mod legacy_binary;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -46,7 +49,7 @@ impl SessionConfig {
     }
 
     fn delete(&self, name: &str) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_herdr"))
+        Command::new(legacy_binary::path())
             .args(["session", "delete", name, "--json"])
             .env("XDG_CONFIG_HOME", &self.root)
             .env_remove("HERDR_SESSION")

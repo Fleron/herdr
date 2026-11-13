@@ -12,25 +12,59 @@
 //! - Forwards OSC 52 clipboard writes from server to its own stdout
 //! - Displays sound/toast notifications forwarded from server
 
+macro_rules! core_shell_extensions {
+    (host; $($item:item)*) => {};
+    ($($item:item)*) => {$(#[cfg(test)]
+$item)*};
+}
+
+macro_rules! legacy_shell_extensions {
+    ($($item:item)*) => {$($item)*};
+}
+
+#[path = "host_capabilities.rs"]
+pub(crate) mod host_capabilities;
+pub(crate) use herdr_core_tui::frame;
+mod legacy_ui;
+pub(crate) mod terminal_text;
+pub(crate) mod terminal_title;
+pub(crate) mod theme;
+pub(crate) mod ui;
+pub(crate) mod ui_action;
+pub(crate) mod ui_domain;
+pub(crate) mod ui_model;
+pub(crate) mod ui_state;
+
 mod attach;
 mod catalog_reload;
+pub(crate) mod clipboard_capture;
 mod clipboard_forwarding;
 mod clipboard_images;
 mod config_reload;
+pub(crate) mod connection_diagnostics;
 #[cfg(unix)]
 mod direct_graphics;
 pub(crate) mod endpoint;
 mod endpoint_commands;
+pub(crate) mod endpoint_model;
 mod errors;
 mod events;
 mod frame_output;
 #[cfg(test)]
 mod frame_output_tests;
 mod handshake;
+mod host_queries;
 mod image_files;
 mod input;
 mod loop_config;
 mod notifications;
+macro_rules! legacy_shell_characterization_tests {
+    ($path:literal) => {
+        #[cfg(test)]
+        #[path = $path]
+        mod tests;
+    };
+}
 mod shell;
 mod shell_runtime;
 mod startup;
@@ -1566,7 +1600,7 @@ async fn run_client_loop(
                             continue;
                         }
                         let composed = if let Some(shell) = &mut state.shell {
-                            shell.set_pane_surface(surface);
+                            shell.set_pane_surface(surface.into());
                             shell.compose(state.reported_size.0, state.reported_size.1)
                         } else {
                             None
@@ -1591,18 +1625,21 @@ async fn run_client_loop(
                             apply_started,
                         );
                         let compose_fallback = match outcome {
-                            Some(shell::ClientPaneSurfacePatchOutcome::Applied(Some(patch))) => {
-                                match state.present_surface_patch(patch) {
-                                    Ok(presented) => !presented,
-                                    Err(error) => {
-                                        warn!(%error, "failed to present retained pane surface patch");
-                                        state.request_repaint();
-                                        false
-                                    }
+                            Some(shell::surface_patch::ClientPaneSurfacePatchOutcome::Applied(
+                                Some(patch),
+                            )) => match state.present_surface_patch(patch) {
+                                Ok(presented) => !presented,
+                                Err(error) => {
+                                    warn!(%error, "failed to present retained pane surface patch");
+                                    state.request_repaint();
+                                    false
                                 }
-                            }
-                            Some(shell::ClientPaneSurfacePatchOutcome::Applied(None)) => true,
-                            Some(shell::ClientPaneSurfacePatchOutcome::Rejected) | None => false,
+                            },
+                            Some(shell::surface_patch::ClientPaneSurfacePatchOutcome::Applied(
+                                None,
+                            )) => true,
+                            Some(shell::surface_patch::ClientPaneSurfacePatchOutcome::Rejected)
+                            | None => false,
                         };
                         apply_client_shell_input_source_changes(
                             &mut state,
@@ -1945,7 +1982,7 @@ async fn run_client_loop(
                                     shell.handle_endpoint_result(
                                         &completed.boot_id,
                                         &completed.request_id,
-                                        completed.result,
+                                        completed.result.map(Into::into),
                                     )
                                 } else {
                                     (
@@ -2340,7 +2377,7 @@ async fn run_client_loop(
                             let (repaint, actions) = shell.handle_endpoint_result(
                                 &expired.boot_id,
                                 &expired.request_id,
-                                expired.result,
+                                expired.result.map(Into::into),
                             );
                             outcome.repaint |= repaint;
                             outcome.actions.extend(actions);

@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 ///
 /// This directly extracts events without going through a channel, making it
 /// suitable for synchronous use.
-#[cfg(test)]
 pub fn parse_raw_input_bytes_sync(data: &[u8]) -> Vec<RawInputEvent> {
     let mut framer = RawInputFramer::default();
     let mut events = framer.push(data);
@@ -15,8 +14,7 @@ pub fn parse_raw_input_bytes_sync(data: &[u8]) -> Vec<RawInputEvent> {
 
 /// Decode bytes the byte framer already split into complete input. This applies
 /// no timing policy of its own: the reader decided where each event ends.
-#[cfg(any(unix, test))]
-pub(crate) fn parse_framed_input(data: &[u8]) -> Vec<RawInputEvent> {
+pub fn parse_framed_input(data: &[u8]) -> Vec<RawInputEvent> {
     let mut events = Vec::new();
     let mut rest = data;
     while !rest.is_empty() {
@@ -38,27 +36,23 @@ use crate::terminal_theme::{
 };
 
 const ESC: u8 = 0x1b;
-#[cfg(any(unix, test))]
-pub(crate) const RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS: i32 = 10;
-#[cfg(any(unix, test))]
-pub(crate) const MOUSE_ACTIVE_ESCAPE_SEQUENCE_FLUSH_TIMEOUT_MS: i32 = 150;
+pub const RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS: i32 = 10;
+pub const MOUSE_ACTIVE_ESCAPE_SEQUENCE_FLUSH_TIMEOUT_MS: i32 = 150;
 /// Covers the 33 ms split in #4630 without gluing legacy Alt+[ to the next key.
-#[cfg(any(unix, test))]
-pub(crate) const MOUSE_ACTIVE_CSI_INTRODUCER_FLUSH_TIMEOUT_MS: i32 = 50;
+pub const MOUSE_ACTIVE_CSI_INTRODUCER_FLUSH_TIMEOUT_MS: i32 = 50;
 /// Covers the 350 ms mouse tail delay in #3480. Other input ends it early (#4751).
 #[cfg(unix)]
 const DISAMBIGUATED_MOUSE_TAIL_FLUSH_TIMEOUT_MS: i32 = 500;
 /// Bytes already inside a sequence cannot be a key, so wait long enough for a
 /// split read over a slow link before giving up on them.
-#[cfg(any(unix, test))]
-pub(crate) const INCOMPLETE_SEQUENCE_FLUSH_TIMEOUT_MS: i32 = 500;
+pub const INCOMPLETE_SEQUENCE_FLUSH_TIMEOUT_MS: i32 = 500;
 pub(crate) const GHOSTTY_COLOR_SCHEME_DARK_REPORT: &[u8] = b"\x1b[?997;1n";
 pub(crate) const GHOSTTY_COLOR_SCHEME_LIGHT_REPORT: &[u8] = b"\x1b[?997;2n";
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
 
 /// Returns the UTF-8 payload when `data` is exactly one complete bracketed paste.
-pub(crate) fn complete_text_bracketed_paste(data: &[u8]) -> Option<&str> {
+pub fn complete_text_bracketed_paste(data: &[u8]) -> Option<&str> {
     if !data.starts_with(BRACKETED_PASTE_START) {
         return None;
     }
@@ -71,7 +65,7 @@ pub(crate) fn complete_text_bracketed_paste(data: &[u8]) -> Option<&str> {
 
 /// Client transport uses this to distinguish recoverable oversized interactive
 /// pastes from generic oversized input, which remains a protocol violation.
-pub(crate) fn is_complete_text_bracketed_paste(data: &[u8]) -> bool {
+pub fn is_complete_text_bracketed_paste(data: &[u8]) -> bool {
     complete_text_bracketed_paste(data).is_some()
 }
 
@@ -101,31 +95,29 @@ pub enum RawInputEvent {
 }
 
 /// Byte framer plus event decoding, for the Windows input pump.
-#[cfg(any(windows, test))]
 #[derive(Default)]
-pub(crate) struct RawInputFramer {
+pub struct RawInputFramer {
     byte_framer: RawInputByteFramer,
 }
 
-#[cfg(any(windows, test))]
 impl RawInputFramer {
-    pub(crate) fn for_host_input() -> Self {
+    pub fn for_host_input() -> Self {
         Self {
             byte_framer: RawInputByteFramer::for_host_input(),
         }
     }
 
     #[cfg(windows)]
-    pub(crate) fn host_default_color_query_sent(&mut self, escape_grace: Duration) {
+    pub fn host_default_color_query_sent(&mut self, escape_grace: Duration) {
         self.byte_framer.host_default_color_query_sent(escape_grace);
     }
 
-    pub(crate) fn push(&mut self, data: &[u8]) -> Vec<RawInputEvent> {
+    pub fn push(&mut self, data: &[u8]) -> Vec<RawInputEvent> {
         events_from_framed_chunks(self.byte_framer.push(data))
     }
 
     #[cfg(windows)]
-    pub(crate) fn holds_host_default_color_escape(&self) -> bool {
+    pub fn holds_host_default_color_escape(&self) -> bool {
         self.byte_framer.buffer.as_slice() == [ESC]
             && self.byte_framer.host_color_replies_awaited > 0
             && self
@@ -134,24 +126,19 @@ impl RawInputFramer {
                 .is_some_and(|deadline| Instant::now() < deadline)
     }
 
-    #[cfg(all(test, not(windows)))]
-    pub(crate) fn holds_host_default_color_escape(&self) -> bool {
-        false
-    }
-
-    pub(crate) fn has_pending_bracketed_paste(&self) -> bool {
+    pub fn has_pending_bracketed_paste(&self) -> bool {
         self.byte_framer.has_pending_bracketed_paste()
     }
 
-    pub(crate) fn has_pending_default_mouse_sequence(&self) -> bool {
+    pub fn has_pending_default_mouse_sequence(&self) -> bool {
         starts_with_incomplete_default_mouse_sequence(&self.byte_framer.buffer)
     }
 
-    pub(crate) fn flush_timeout(&mut self) -> Vec<RawInputEvent> {
+    pub fn flush_timeout(&mut self) -> Vec<RawInputEvent> {
         events_from_framed_chunks(self.byte_framer.flush_timeout())
     }
 
-    pub(crate) fn flush_keyboard_escape(&mut self) -> Vec<RawInputEvent> {
+    pub fn flush_keyboard_escape(&mut self) -> Vec<RawInputEvent> {
         if self.byte_framer.buffer.as_slice() == [ESC] {
             self.byte_framer.lone_escape_recently_flushed = true;
             events_from_framed_chunks(vec![std::mem::take(&mut self.byte_framer.buffer)])
@@ -161,7 +148,7 @@ impl RawInputFramer {
     }
 
     /// Semantic input ends mouse recovery, unlike another idle interval.
-    pub(crate) fn flush_interrupted(&mut self) -> Vec<RawInputEvent> {
+    pub fn flush_interrupted(&mut self) -> Vec<RawInputEvent> {
         #[cfg(windows)]
         self.byte_framer.flush_lone_escape_on_interruption();
         let mut chunks = self.byte_framer.flush_timeout();
@@ -197,7 +184,7 @@ fn events_from_framed_chunks(chunks: Vec<Vec<u8>>) -> Vec<RawInputEvent> {
 }
 
 #[derive(Default)]
-pub(crate) struct RawInputByteFramer {
+pub struct RawInputByteFramer {
     buffer: Vec<u8>,
     discard_until: Option<ControlStringFamily>,
     discarded_tail_bytes: usize,
@@ -240,25 +227,24 @@ const HOST_REPLY_QUIET_WINDOW: Duration = Duration::from_secs(1);
 /// over SSH and tmux, yet short enough that a reply the link cut off cannot
 /// hold input for long.
 const HOST_COLOR_REPLY_IDLE_LIMIT: Duration = Duration::from_secs(1);
-#[cfg(any(unix, test))]
 const HOST_CELL_SIZE_QUERY_REPLIES: u16 = 1;
 const MAX_ORPHANED_SGR_MOUSE_TAIL_BYTES: usize = 32;
 
 impl RawInputByteFramer {
-    pub(crate) fn for_host_input() -> Self {
+    pub fn for_host_input() -> Self {
         Self::with_host_input_policy(
             crate::platform::capabilities().preserve_legacy_doubled_escape_input,
         )
     }
 
-    pub(crate) fn with_host_input_policy(preserve_legacy_doubled_escape_input: bool) -> Self {
+    pub fn with_host_input_policy(preserve_legacy_doubled_escape_input: bool) -> Self {
         Self {
             split_coalesced_escape: !preserve_legacy_doubled_escape_input,
             ..Self::default()
         }
     }
 
-    pub(crate) fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+    pub fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
         if data.is_empty() {
             return self.push_extended();
         }
@@ -287,12 +273,12 @@ impl RawInputByteFramer {
     /// Hold a lone trailing ESC for one idle flush so an OSC 10/11 reply split
     /// at its ESC introducer stitches back together instead of leaking (#549).
     /// Overlapping queries each add their own replies to the window.
-    pub(crate) fn host_color_query_sent(&mut self) {
+    pub fn host_color_query_sent(&mut self) {
         self.host_color_query_sent_with_replies(HOST_COLOR_QUERY_REPLIES);
     }
 
     #[cfg(windows)]
-    pub(crate) fn host_default_color_query_sent(&mut self, reply_window: Duration) {
+    pub fn host_default_color_query_sent(&mut self, reply_window: Duration) {
         self.host_color_query_sent_with_replies(2);
         self.host_default_color_query_issued = true;
         self.host_default_color_query_deadline = Some(Instant::now() + reply_window);
@@ -349,8 +335,7 @@ impl RawInputByteFramer {
 
     /// Same hold window as `host_color_query_sent`, for the XTWINOPS cell size
     /// reply. Only the Unix client sends this query.
-    #[cfg(any(unix, test))]
-    pub(crate) fn host_cell_size_query_sent(&mut self) {
+    pub fn host_cell_size_query_sent(&mut self) {
         self.host_cell_size_replies_awaited = HOST_CELL_SIZE_QUERY_REPLIES;
         self.held_pending_host_reply_esc = false;
         self.host_reply_activity_at = Some(Instant::now());
@@ -397,25 +382,23 @@ impl RawInputByteFramer {
             .and_then(|at| at.checked_sub(by));
     }
 
-    #[cfg(any(unix, test))]
-    pub(crate) fn enable_host_color_scheme_change_tracking(&mut self) {
+    pub fn enable_host_color_scheme_change_tracking(&mut self) {
         self.host_color_scheme_change_tracking = true;
     }
 
     /// Arm the bounded host-reply window when focus gain will emit an appearance query.
     /// If the write or reply fails, a lone Escape is delayed for only one extra flush.
     #[cfg(any(not(windows), test))]
-    pub(crate) fn enable_host_appearance_query_on_focus(&mut self) {
+    pub fn enable_host_appearance_query_on_focus(&mut self) {
         self.host_appearance_query_on_focus = true;
     }
 
-    #[cfg(any(unix, test))]
-    pub(crate) fn has_pending_input(&self) -> bool {
+    pub fn has_pending_input(&self) -> bool {
         !self.buffer.is_empty()
     }
 
     #[cfg(unix)]
-    pub(crate) fn set_host_escape_disambiguation_active(&mut self, active: bool) {
+    pub fn set_host_escape_disambiguation_active(&mut self, active: bool) {
         self.host_escape_disambiguation_active = active;
     }
 
@@ -423,7 +406,6 @@ impl RawInputByteFramer {
     /// plus one introducer. Legacy hosts send those for Escape and Alt+key, and
     /// host text bindings (e.g. Ghostty `text:\x1bO`) send them even when the
     /// host disambiguates escapes.
-    #[cfg(any(unix, test))]
     fn pending_could_be_escape_key(&self) -> bool {
         is_escape_key_prefix(&self.buffer)
     }
@@ -431,8 +413,7 @@ impl RawInputByteFramer {
     /// How long to wait for more input before `flush_timeout`. Only bytes that
     /// could still be a key get the short keyboard window; anything already
     /// inside a sequence waits long enough for split reads over slow links.
-    #[cfg(any(unix, test))]
-    pub(crate) fn idle_flush_timeout_ms(&self, host_mouse_capture_active: bool) -> i32 {
+    pub fn idle_flush_timeout_ms(&self, host_mouse_capture_active: bool) -> i32 {
         if self.buffer.is_empty() {
             return RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS;
         }
@@ -459,7 +440,7 @@ impl RawInputByteFramer {
 
     /// How long to keep holding input after a first idle flush held it.
     #[cfg(unix)]
-    pub(crate) fn held_input_flush_timeout_ms(&self) -> i32 {
+    pub fn held_input_flush_timeout_ms(&self) -> i32 {
         if self.awaiting_mouse_tail_after.is_some() {
             DISAMBIGUATED_MOUSE_TAIL_FLUSH_TIMEOUT_MS
         } else {
@@ -467,13 +448,12 @@ impl RawInputByteFramer {
         }
     }
 
-    #[cfg(any(windows, test))]
-    pub(crate) fn has_pending_bracketed_paste(&self) -> bool {
+    pub fn has_pending_bracketed_paste(&self) -> bool {
         self.buffer.starts_with(BRACKETED_PASTE_START)
             && find_subsequence(&self.buffer, BRACKETED_PASTE_END).is_none()
     }
 
-    pub(crate) fn flush_timeout(&mut self) -> Vec<Vec<u8>> {
+    pub fn flush_timeout(&mut self) -> Vec<Vec<u8>> {
         let mut chunks = self.drain_available_chunks();
         self.expire_unanswered_host_queries();
 
@@ -973,8 +953,7 @@ fn plausible_control_string_tail(family: ControlStringFamily, buffer: &[u8]) -> 
     }
 }
 
-#[cfg(any(unix, test))]
-pub(crate) fn events_require_host_surface_redraw(
+pub fn events_require_host_surface_redraw(
     events: &[RawInputEvent],
     redraw_on_focus_gained: bool,
 ) -> bool {
@@ -984,22 +963,21 @@ pub(crate) fn events_require_host_surface_redraw(
             .any(|event| matches!(event, RawInputEvent::OuterFocusGained))
 }
 
-#[cfg(any(unix, test))]
-pub(crate) fn events_require_host_mode_refresh(events: &[RawInputEvent]) -> bool {
+pub fn events_require_host_mode_refresh(events: &[RawInputEvent]) -> bool {
     events
         .iter()
         .any(|event| matches!(event, RawInputEvent::OuterFocusGained))
 }
 
 #[cfg(any(not(windows), test))]
-pub(crate) fn events_require_host_terminal_appearance_query(events: &[RawInputEvent]) -> bool {
+pub fn events_require_host_terminal_appearance_query(events: &[RawInputEvent]) -> bool {
     events
         .iter()
         .any(|event| matches!(event, RawInputEvent::OuterFocusGained))
 }
 
 #[cfg(any(not(windows), test))]
-pub(crate) fn events_require_host_terminal_theme_query(events: &[RawInputEvent]) -> bool {
+pub fn events_require_host_terminal_theme_query(events: &[RawInputEvent]) -> bool {
     events
         .iter()
         .any(|event| matches!(event, RawInputEvent::HostColorSchemeChanged(_)))
@@ -1195,7 +1173,6 @@ fn is_alt_key_introducer(buffer: &[u8]) -> bool {
     matches!(buffer, [ESC, b'[' | b'O' | ESC])
 }
 
-#[cfg(any(unix, test))]
 fn is_escape_key_prefix(buffer: &[u8]) -> bool {
     match buffer {
         [ESC] => true,
@@ -1336,8 +1313,6 @@ fn could_continue_as_mouse_report(buffer: &[u8]) -> bool {
         .any(|prefix| buffer.starts_with(prefix) || prefix.starts_with(buffer))
 }
 
-#[cfg(any(unix, windows, test))]
-#[cfg(any(windows, test))]
 fn starts_with_incomplete_default_mouse_sequence(buffer: &[u8]) -> bool {
     buffer.starts_with(b"\x1b[M") && buffer.len() < 6
 }
@@ -1544,16 +1519,16 @@ fn parse_sgr_mouse(sequence: &str) -> Option<MouseEvent> {
 /// One SGR mouse report (`CSI < Cb ; x ; y M/m`) with its raw 1-based
 /// coordinates: cells normally, pixels when the host reports SGR pixels (1016).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SgrMouseReport {
+pub struct SgrMouseReport {
     kind: MouseEventKind,
     modifiers: KeyModifiers,
-    pub(crate) x: u32,
-    pub(crate) y: u32,
+    pub x: u32,
+    pub y: u32,
 }
 
 impl SgrMouseReport {
     /// The report as a mouse event at a 0-based cell.
-    pub(crate) fn at_cell(self, column: u16, row: u16) -> MouseEvent {
+    pub fn at_cell(self, column: u16, row: u16) -> MouseEvent {
         MouseEvent {
             kind: self.kind,
             column,
@@ -1563,7 +1538,7 @@ impl SgrMouseReport {
     }
 }
 
-pub(crate) fn parse_sgr_mouse_report(sequence: &[u8]) -> Option<SgrMouseReport> {
+pub fn parse_sgr_mouse_report(sequence: &[u8]) -> Option<SgrMouseReport> {
     let body = sequence.strip_prefix(b"\x1b[<")?;
     let (&final_byte, payload) = body.split_last()?;
     if final_byte != b'M' && final_byte != b'm' {

@@ -386,8 +386,7 @@ mod tests {
 
     fn test_ledger() -> TestLedger {
         let scratch = private_directory(Path::new("/var/tmp")).unwrap();
-        let mut ledger = Ledger::new();
-        ledger.root = scratch.clone();
+        let mut ledger = Ledger::for_test(scratch.clone());
         // Most ledger tests start after successful query consumption.
         ledger.probe = ProbeState::Consumed;
         TestLedger { ledger, scratch }

@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const DEFAULT_TAB_BAR_COMMAND_INTERVAL_SECONDS: u64 = 5;
 pub(crate) const DEFAULT_TAB_BAR_COMMAND_TIMEOUT_SECONDS: u64 = 2;
-pub(crate) const MAX_TAB_BAR_COMMAND_INTERVAL_SECONDS: u64 = 31_536_000;
-pub(crate) const MAX_TAB_BAR_COMMAND_TIMEOUT_SECONDS: u64 = 3_600;
-pub(crate) const MAX_TAB_BAR_RIGHT_ENTRIES: usize = 16;
+pub const MAX_TAB_BAR_COMMAND_INTERVAL_SECONDS: u64 = 31_536_000;
+pub const MAX_TAB_BAR_COMMAND_TIMEOUT_SECONDS: u64 = 3_600;
+pub const MAX_TAB_BAR_RIGHT_ENTRIES: usize = 16;
 
 fn default_datetime_format() -> String {
     "%H:%M".to_string()
@@ -39,7 +39,7 @@ pub enum TabBarRightEntryConfig {
     },
 }
 
-pub(crate) fn parse_tab_bar_datetime_format(
+pub fn parse_tab_bar_datetime_format(
     value: &str,
 ) -> Result<time::format_description::OwnedFormatItem, String> {
     if value.is_empty() {
@@ -53,7 +53,7 @@ pub(crate) fn parse_tab_bar_datetime_format(
     Ok(format)
 }
 
-pub(crate) fn tab_bar_right_diagnostics(entries: &[TabBarRightEntryConfig]) -> Vec<String> {
+pub fn tab_bar_right_diagnostics(entries: &[TabBarRightEntryConfig]) -> Vec<String> {
     let mut diagnostics = Vec::new();
     if entries.len() > MAX_TAB_BAR_RIGHT_ENTRIES {
         diagnostics.push(format!(
@@ -110,6 +110,58 @@ pub(crate) fn tab_bar_right_diagnostics(entries: &[TabBarRightEntryConfig]) -> V
     }
 
     diagnostics
+}
+
+pub fn sanitize_separator(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect()
+}
+
+pub fn sanitize_literal_text(value: &str) -> Option<String> {
+    let value: String = value
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect();
+    (!value.is_empty()).then_some(value)
+}
+
+pub fn sanitize_status_text(value: &str) -> Option<String> {
+    let value: String = value
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control() && !is_unicode_format_control(*character))
+        .take(80)
+        .collect();
+    (!value.is_empty()).then_some(value)
+}
+
+fn is_unicode_format_control(character: char) -> bool {
+    matches!(
+        character,
+        '\u{00ad}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061c}'
+            | '\u{06dd}'
+            | '\u{070f}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08e2}'
+            | '\u{17b4}'..='\u{17b5}'
+            | '\u{180e}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{feff}'
+            | '\u{fff9}'..='\u{fffb}'
+            | '\u{110bd}'
+            | '\u{110cd}'
+            | '\u{13430}'..='\u{1343f}'
+            | '\u{1bca0}'..='\u{1bca3}'
+            | '\u{1d173}'..='\u{1d17a}'
+            | '\u{e0001}'
+            | '\u{e0020}'..='\u{e007f}'
+    )
 }
 
 #[cfg(test)]

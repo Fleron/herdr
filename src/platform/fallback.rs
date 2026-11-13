@@ -1,7 +1,15 @@
+#[path = "fallback/client.rs"]
+mod client;
+pub use client::{
+    clipboard_text_matches, open_url, read_clipboard_image, read_clipboard_text,
+    show_desktop_notification, write_clipboard,
+};
+pub(crate) use client::{should_draw_host_cursor_by_default, should_query_host_terminal_palette};
+
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::{ClipboardImage, ForegroundJob, Signal};
+use super::{ForegroundJob, Signal};
 
 #[cfg(unix)]
 pub(crate) use super::unix_common::set_default_plugin_pane_pwd;
@@ -129,14 +137,6 @@ fn shell_quote(value: &str) -> String {
 /// Unsupported platform stub.
 pub fn raise_server_nofile_limit() {}
 
-pub(crate) fn should_draw_host_cursor_by_default() -> bool {
-    false
-}
-
-pub(crate) fn should_query_host_terminal_palette() -> bool {
-    false
-}
-
 pub(crate) fn hostname() -> Option<String> {
     None
 }
@@ -243,37 +243,4 @@ pub fn live_pane_process_group(_shell_pid: u32, _pid: u32, _start_token: u64) ->
 /// Unsupported platform stub.
 pub fn process_exists(_pid: u32) -> bool {
     false
-}
-
-/// Unsupported platform stub.
-pub fn write_clipboard(_bytes: &[u8]) -> bool {
-    false
-}
-
-/// Unsupported platform stub.
-pub fn read_clipboard_text() -> Option<String> {
-    None
-}
-
-/// Unsupported platform stub.
-pub fn clipboard_text_matches(_bytes: &[u8]) -> Option<bool> {
-    None
-}
-
-/// Unsupported platform stub.
-pub fn open_url(_url: &str) -> std::io::Result<Option<std::process::Child>> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "opening URLs is not supported on this platform",
-    ))
-}
-
-/// Unsupported platform stub.
-pub fn read_clipboard_image() -> Option<ClipboardImage> {
-    None
-}
-
-/// Unsupported platform stub.
-pub fn show_desktop_notification(_title: &str, _body: Option<&str>) -> std::io::Result<bool> {
-    Ok(false)
 }

@@ -71,7 +71,7 @@ impl BindingConfig {
         }
     }
 
-    pub(crate) fn into_values(self) -> Vec<String> {
+    pub fn into_values(self) -> Vec<String> {
         match self {
             Self::One(value) => vec![value],
             Self::Many(values) => values,
@@ -202,7 +202,7 @@ pub struct ActionKeybinds {
 }
 
 impl ActionKeybinds {
-    pub(crate) fn from_labels(labels: &[String]) -> Result<Self, String> {
+    pub fn from_labels(labels: &[String]) -> Result<Self, String> {
         let mut bindings = Vec::new();
         for label in labels {
             match parse_binding_string(label) {
@@ -1278,7 +1278,7 @@ fn parse_modifier_combo(s: &str) -> Option<KeyModifiers> {
     }
 }
 
-pub(crate) fn parse_key_combo(s: &str) -> Option<KeyCombo> {
+pub fn parse_key_combo(s: &str) -> Option<KeyCombo> {
     let s = s.trim();
     // Labels are also used in endpoint profiles and command manifests. A literal
     // plus is the key after the final separator, not an empty key token.

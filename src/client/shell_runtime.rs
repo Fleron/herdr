@@ -12,6 +12,21 @@ pub(super) fn dispatch_client_shell_actions(
     let mut repaint = false;
     for action in actions {
         match action {
+            shell::ClientShellAction::AttachTerminal { target } => {
+                if let Some(shell) = shell.as_deref_mut() {
+                    repaint |= shell.receive_runtime_error(format!(
+                        "Terminal {} on core {} cannot be attached through the legacy runtime",
+                        target.terminal, target.machine_id,
+                    ));
+                }
+            }
+            shell::ClientShellAction::Core(action) => {
+                if let Some(shell) = shell.as_deref_mut() {
+                    repaint |= shell.receive_runtime_error(format!(
+                        "Core action {action:?} is unavailable through the legacy runtime",
+                    ));
+                }
+            }
             shell::ClientShellAction::Endpoint {
                 endpoint_id,
                 boot_id,
@@ -25,10 +40,15 @@ pub(super) fn dispatch_client_shell_actions(
                             || (connection.surface_active
                                 && matches!(
                                     request.method,
-                                    crate::api::schema::Method::WorkspaceFocus(_)
+                                    crate::client::ui_action::FrontendCommand::WorkspaceFocus(_)
                                 )))
                 }) {
-                    endpoint_commands.enqueue(endpoint_id, connection.generation, boot_id, request);
+                    endpoint_commands.enqueue(
+                        endpoint_id,
+                        connection.generation,
+                        boot_id,
+                        Box::new((*request).into()),
+                    );
                 } else if let Some(shell) = shell.as_deref_mut() {
                     repaint |= shell.cancel_endpoint_request(&request.id);
                 }
@@ -698,12 +718,16 @@ pub(super) fn install_client_shell_snapshot(
             shell.set_endpoint_status(endpoint_id, endpoint::ClientEndpointStatus::Online);
         }
         if project_snapshot {
-            shell.set_endpoint_snapshot_for_generation(endpoint_id, generation, snapshot);
+            shell.set_endpoint_snapshot_for_generation(
+                endpoint_id,
+                generation,
+                Box::new((*snapshot).into()),
+            );
         } else {
             shell.cache_endpoint_snapshot_inactive_for_generation(
                 endpoint_id,
                 generation,
-                snapshot,
+                Box::new((*snapshot).into()),
             );
         }
         let graphics_cleanup = shell.take_pending_graphics_cleanup();
@@ -807,6 +831,7 @@ pub(super) fn finish_client_shell_input(
         .is_none_or(|shell| shell.endpoint_is_online(endpoints.active_id()))
         && endpoints.active_surface_available();
     for request in outcome.requests {
+        let request: crate::protocol::ClientMessage = request.into();
         if let ClientMessage::ClientShellHostTheme { update } = &request {
             state.record_host_theme_update(update);
             if let Some(activation) = pending_activation.as_mut() {

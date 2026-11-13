@@ -5,7 +5,7 @@ fn shell(field: usize) -> ClientShellState {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut frame = surface();
-    frame.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    frame.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         viewport_rows: 2,
@@ -21,7 +21,7 @@ fn shell(field: usize) -> ClientShellState {
         5 => {
             state.handle_worktree_endpoint_result(
                 PendingEndpointKind::PrepareWorktreeCreate {
-                    workspace_id: "ws_1".into(),
+                    source: ClientWorktreeSource::Workspace("ws_1".into()),
                 },
                 Ok(worktree_list_result(None)),
                 &mut ClientShellInput::default(),
@@ -41,7 +41,7 @@ fn shell(field: usize) -> ClientShellState {
         8 => {
             state.handle_worktree_endpoint_result(
                 PendingEndpointKind::PrepareWorktreeOpen {
-                    workspace_id: "ws_1".into(),
+                    source: ClientWorktreeSource::Workspace("ws_1".into()),
                 },
                 Ok(worktree_list_result(None)),
                 &mut ClientShellInput::default(),
@@ -148,7 +148,7 @@ fn rename_clear_exceptions_remain_local_and_copy_prompt_yields_to_popup() {
         RawInputEvent::Paste("paste".into()),
     ]);
     assert!(
-        matches!(&result.requests[..], [ClientMessage::ClientShellPopupInput { terminal_id, events }] if terminal_id == "popup-test" && events.len() == 2)
+        matches!(&result.requests[..], [UiRequest::PopupInput { terminal_id, events }] if terminal_id == "popup-test" && events.len() == 2)
     );
     assert_eq!(editor(&mut state).as_str(), "query");
     assert!(!state.modal_paste_target_active());
@@ -206,7 +206,7 @@ fn cursor_movement_preserves_filter_selection_scroll_and_branch_error() {
 
 #[test]
 fn enter_and_escape_preserve_overlay_actions_with_generated_text() {
-    use crate::api::schema::Method;
+    use crate::client::ui_action::FrontendCommand as Method;
     for field in [5, 7, 8] {
         for code in [KeyCode::Enter, KeyCode::Esc] {
             let mut state = shell(field);
@@ -312,7 +312,7 @@ fn focused_filters_keep_ctrl_n_p_navigation_and_literal_commands() {
 
 #[test]
 fn all_naming_targets_preserve_submission_and_empty_semantics() {
-    use crate::api::schema::Method;
+    use crate::client::ui_action::FrontendCommand as Method;
     for field in 0..5 {
         for empty in [false, true] {
             let mut state = shell(field);
@@ -365,7 +365,7 @@ fn copy_search_owns_prefix_but_parked_prompt_does_not_steal_input() {
     assert!(!state.modal_paste_target_active());
     let input = state.handle_raw_events(vec![RawInputEvent::Text(TextCommit::new("terminal"))]);
     assert!(
-        matches!(&input.requests[..], [ClientMessage::ClientShellPaneInput { events, .. }] if matches!(&events[..], [ClientPaneInputEvent::TextCommit(text)] if text == "terminal"))
+        matches!(&input.requests[..], [UiRequest::PaneInput { events, .. }] if matches!(&events[..], [ClientPaneInputEvent::TextCommit(text)] if text == "terminal"))
     );
     assert_eq!(editor(&mut state).as_str(), "aXb");
     state.mode = ClientShellMode::Copy;

@@ -66,10 +66,9 @@ pub(super) fn render_settings_overlay(
     );
 
     let integration_badge = integration_updates_available
-        || settings
-            .integrations
-            .iter()
-            .any(|integration| integration.state == crate::api::schema::IntegrationState::Outdated);
+        || settings.integrations.iter().any(|integration| {
+            integration.state == crate::client::ui_domain::IntegrationState::Outdated
+        });
     let mut tab_x = inner.x;
     let mut tab_hits = Vec::new();
     for section in ClientSettingsSection::ALL {
@@ -348,14 +347,16 @@ fn render_integrations(
             break;
         }
         let (marker, color, status) = match integration.state {
-            crate::api::schema::IntegrationState::Current => ("✓", palette.green, "installed"),
-            crate::api::schema::IntegrationState::Outdated => {
+            crate::client::ui_domain::IntegrationState::Current => {
+                ("✓", palette.green, "installed")
+            }
+            crate::client::ui_domain::IntegrationState::Outdated => {
                 ("↻", palette.yellow, "update available")
             }
-            crate::api::schema::IntegrationState::NotInstalled if integration.available => {
+            crate::client::ui_domain::IntegrationState::NotInstalled if integration.available => {
                 ("+", palette.accent, "available")
             }
-            crate::api::schema::IntegrationState::NotInstalled => {
+            crate::client::ui_domain::IntegrationState::NotInstalled => {
                 ("–", palette.overlay0, "not found")
             }
         };

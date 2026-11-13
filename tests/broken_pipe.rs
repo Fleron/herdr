@@ -1,5 +1,8 @@
 #![cfg(unix)]
 
+#[path = "legacy_binary/mod.rs"]
+mod legacy_binary;
+
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Output, Stdio};
@@ -16,7 +19,7 @@ fn closed_pipe_writer() -> Stdio {
 }
 
 fn run_with_closed_stdout(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_herdr"))
+    Command::new(legacy_binary::path())
         .args(args)
         .stdout(closed_pipe_writer())
         .stderr(Stdio::piped())

@@ -1,11 +1,11 @@
 /// Maximum characters in a rendered outer terminal window title.
 pub(crate) const MAX_WINDOW_TITLE_CHARS: usize = 200;
 
-pub(crate) fn default_window_title() -> String {
+pub fn default_window_title() -> String {
     "{hostname}: {workspace}".to_string()
 }
 
-pub(crate) fn sanitize_window_title_text(value: &str) -> Option<String> {
+pub fn sanitize_window_title_text(value: &str) -> Option<String> {
     let sanitized = value
         .chars()
         .filter(|ch| !matches!(*ch, '\u{1b}' | '\u{7}' | '\u{9c}') && !ch.is_control())
@@ -120,7 +120,7 @@ impl WindowTitleTemplate {
     }
 }
 
-pub(crate) fn window_title_diagnostics(template: &str) -> Option<String> {
+pub fn window_title_diagnostics(template: &str) -> Option<String> {
     WindowTitleTemplate::parse(template)
         .err()
         .map(|err| format!("ui.window_title {err}; leaving the outer terminal title alone"))

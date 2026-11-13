@@ -105,6 +105,41 @@ fn failed_direct_ack_composition_restores_graphics_for_inline_retry() {
     assert!(String::from_utf8_lossy(&retry.graphics.into_inline_bytes()).contains("a=t"));
 }
 
+#[test]
+fn refreshing_mouse_targets_preserves_the_next_painted_image_upload() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    let mut pane = surface();
+    let (asset, placement) = image(
+        SurfaceGraphicsTarget::Pane {
+            pane_id: "pane_1".into(),
+        },
+        0,
+        0,
+        72,
+    );
+    pane.graphics.assets.push(asset);
+    pane.graphics.placements.push(placement);
+    state.set_pane_surface(pane);
+    assert!(state.refresh_hit_map(80, 24));
+    assert!(!state.hits.panes.is_empty());
+    assert!(state.last_composed_at.is_none());
+    let painted = state.compose(80, 24).expect("paired image surface");
+    assert!(painted.graphics.operations.iter().any(|operation| {
+        matches!(
+            operation,
+            crate::kitty_graphics::GraphicsOperation::Upload { .. }
+        )
+    }));
+    let next = state.compose(80, 24).unwrap();
+    assert!(!next.graphics.operations.iter().any(|operation| {
+        matches!(
+            operation,
+            crate::kitty_graphics::GraphicsOperation::Upload { .. }
+        )
+    }));
+}
+
 fn is_placed(bytes: &[u8], point: (u16, u16)) -> bool {
     String::from_utf8_lossy(bytes).contains(&format!("\x1b[{};{}H", point.1 + 1, point.0 + 1))
 }
@@ -152,6 +187,7 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
             state.set_snapshot(Box::new(snapshot()));
             state.set_pane_surface(surface());
             state.visible_notification = Some(ClientVisibleNotification {
+                runtime_target: None,
                 endpoint_id: ClientEndpointId::Local,
                 event: SemanticNotification {
                     kind: SemanticNotificationKind::Custom,
@@ -184,7 +220,7 @@ fn notifications_and_clipboard_feedback_only_cover_their_drawn_corners() {
             state.config.clipboard_toast_position = position;
             state.set_snapshot(Box::new(snapshot()));
             state.set_pane_surface(surface());
-            state.copy_feedback = Some(crate::app::state::CopyFeedback {
+            state.copy_feedback = Some(crate::client::ui_state::CopyFeedback {
                 message: "copied".into(),
             });
             let layout = state.layout(cols, rows);
@@ -235,15 +271,17 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
     let palette = ClientShellConfig::from_config(&Config::default()).palette;
     let overlays = vec![
         ClientShellOverlay::Onboarding,
-        ClientShellOverlay::ProductAnnouncement(crate::app::state::ProductAnnouncementState {
-            version: "1".into(),
-            id: "test".into(),
-            title: "news".into(),
-            body: "body".into(),
-            scroll: 0,
-            preview: false,
-        }),
-        ClientShellOverlay::ReleaseNotes(crate::app::state::ReleaseNotesState {
+        ClientShellOverlay::ProductAnnouncement(
+            crate::client::ui_state::ProductAnnouncementState {
+                version: "1".into(),
+                id: "test".into(),
+                title: "news".into(),
+                body: "body".into(),
+                scroll: 0,
+                preview: false,
+            },
+        ),
+        ClientShellOverlay::ReleaseNotes(crate::client::ui_state::ReleaseNotesState {
             version: "1".into(),
             body: "body".into(),
             scroll: 0,
@@ -276,7 +314,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             filter: None,
         }),
         ClientShellOverlay::WorktreeCreate(ClientWorktreeCreateOverlay {
-            source_workspace_id: "ws_1".into(),
+            source: ClientWorktreeSource::Workspace("ws_1".into()),
             repo_name: "repo".into(),
             branch: "branch".into(),
             checkout_path: "path".into(),
@@ -284,7 +322,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             creating: false,
         }),
         ClientShellOverlay::WorktreeOpen(ClientWorktreeOpenOverlay {
-            source_workspace_id: "ws_1".into(),
+            source: ClientWorktreeSource::Workspace("ws_1".into()),
             entries: Vec::new(),
             selected: 0,
             query: TextEditor::default(),
@@ -308,7 +346,11 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             y: 8,
             highlighted: 0,
         }),
-        ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay { highlighted: 0 }),
+        ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
+            stop_target: None,
+            stop_label: None,
+            highlighted: 0,
+        }),
         ClientShellOverlay::Settings(ClientSettingsOverlay {
             section: ClientSettingsSection::Theme,
             selected: 0,
@@ -411,7 +453,7 @@ fn selection_copy_cursor_and_search_hide_only_the_highlighted_images() {
     state.set_snapshot(Box::new(snapshot()));
     let layout = state.layout(106, 20);
     let mut surface = surface();
-    surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         viewport_rows: 2,

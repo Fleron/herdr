@@ -68,17 +68,17 @@ impl ClientShellState {
         }
         gesture.pending_row = Some(row);
         let pane_id = gesture.pane_id.clone();
-        let params = crate::api::schema::PaneSelectionReadParams {
+        let params = crate::client::ui_domain::PaneSelectionReadParams {
             pane_id: pane_id.clone(),
-            anchor: crate::api::schema::PaneTextPoint { row, col: 0 },
-            cursor: crate::api::schema::PaneTextPoint {
+            anchor: crate::client::ui_domain::PaneTextPoint { row, col: 0 },
+            cursor: crate::client::ui_domain::PaneTextPoint {
                 row,
                 col: gesture.end_col,
             },
             content_revision: gesture.content_revision,
         };
         if !self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneSelectionRead(params),
+            crate::client::ui_action::FrontendCommand::PaneSelectionRead(params),
             PendingEndpointKind::WordSelection {
                 pane_id,
                 absolute_row: row,
@@ -131,7 +131,7 @@ impl ClientShellState {
             return;
         };
         let (start_col, end_col) =
-            crate::app::actions::word_bounds_at_column(text, gesture.cursor.1)
+            crate::client::terminal_text::word_bounds_at_column(text, gesture.cursor.1)
                 .unwrap_or((gesture.cursor.1, gesture.cursor.1));
         let start = (gesture.anchor.0, anchor_start).min((gesture.cursor.0, start_col));
         let end = (gesture.anchor.0, anchor_end).max((gesture.cursor.0, end_col));
@@ -164,7 +164,7 @@ impl ClientShellState {
         pane_id: String,
         absolute_row: u32,
         generation: u64,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::client::ui_domain::ResponseResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
         if self.word_selection_generation != generation
             || self.word_selection_gesture.as_ref().is_none_or(|gesture| {
@@ -182,12 +182,12 @@ impl ClientShellState {
             return (true, Vec::new());
         }
         let text = match result {
-            Ok(crate::api::schema::ResponseResult::PaneSelection {
+            Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
                 pane_id: returned_pane_id,
                 text,
             }) if returned_pane_id == pane_id => text,
             other => {
-                if matches!(other, Ok(value) if !matches!(value, crate::api::schema::ResponseResult::PaneSelection { .. }))
+                if matches!(other, Ok(value) if !matches!(value, crate::client::ui_domain::ResponseResult::PaneSelection { .. }))
                 {
                     self.set_endpoint_error(
                         "endpoint returned an unexpected word-selection result",
@@ -203,7 +203,7 @@ impl ClientShellState {
         gesture.pending_row = None;
         if gesture.anchor_bounds.is_none() {
             gesture.anchor_bounds =
-                crate::app::actions::word_bounds_at_column(&text, gesture.anchor.1);
+                crate::client::terminal_text::word_bounds_at_column(&text, gesture.anchor.1);
             if gesture.anchor_bounds.is_none() {
                 self.cancel_word_selection();
                 return (true, Vec::new());

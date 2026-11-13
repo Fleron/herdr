@@ -1,8 +1,8 @@
 use super::*;
 
 pub(crate) struct ClientComposedSurfacePatch {
-    pub(crate) rows: Vec<crate::protocol::PaneSurfacePatchRow>,
-    pub(crate) cursor: Option<crate::protocol::CursorState>,
+    pub(crate) rows: Vec<crate::client::frame::PaneSurfacePatchRow>,
+    pub(crate) cursor: Option<crate::client::frame::CursorState>,
 }
 
 pub(crate) enum ClientPaneSurfacePatchOutcome {
@@ -10,14 +10,14 @@ pub(crate) enum ClientPaneSurfacePatchOutcome {
     Applied(Option<ClientComposedSurfacePatch>),
 }
 
-fn row_fits_frame(row: &crate::protocol::PaneSurfacePatchRow, frame: &FrameData) -> bool {
+fn row_fits_frame(row: &crate::client::frame::PaneSurfacePatchRow, frame: &FrameData) -> bool {
     row.x
         .saturating_add(row.cells.len().min(u16::MAX as usize) as u16)
         <= frame.width
         && row.y < frame.height
 }
 
-fn apply_row(row: &crate::protocol::PaneSurfacePatchRow, frame: &mut FrameData) -> bool {
+fn apply_row(row: &crate::client::frame::PaneSurfacePatchRow, frame: &mut FrameData) -> bool {
     if !row_fits_frame(row, frame) {
         return false;
     }
@@ -31,8 +31,8 @@ fn apply_row(row: &crate::protocol::PaneSurfacePatchRow, frame: &mut FrameData) 
 }
 
 fn apply_patch_to_surface(
-    surface: &mut crate::protocol::PaneSurfaceFrame,
-    patch: &crate::protocol::PaneSurfacePatch,
+    surface: &mut crate::client::ui_model::PaneSurfaceFrame,
+    patch: &crate::client::frame::PaneSurfacePatch,
 ) -> bool {
     for row in &patch.rows {
         if !apply_row(row, &mut surface.frame) {
@@ -56,7 +56,7 @@ fn apply_patch_to_surface(
 
 fn fast_path_blocker(
     state: &ClientShellState,
-    patch: &crate::protocol::PaneSurfacePatch,
+    patch: &crate::client::frame::PaneSurfacePatch,
 ) -> Option<&'static str> {
     if state.mode != ClientShellMode::Terminal {
         Some("client_surface_patch.fallback.mode")
@@ -94,8 +94,8 @@ fn fast_path_blocker(
 }
 
 fn pane_geometry_matches(
-    left: &crate::protocol::PaneSurfacePane,
-    right: &crate::protocol::PaneSurfacePane,
+    left: &crate::client::ui_model::PaneSurfacePane,
+    right: &crate::client::ui_model::PaneSurfacePane,
 ) -> bool {
     left.pane_id == right.pane_id
         && left.rect == right.rect
@@ -108,7 +108,7 @@ fn pane_geometry_matches(
 impl ClientShellState {
     pub(crate) fn apply_pane_surface_patch(
         &mut self,
-        patch: crate::protocol::PaneSurfacePatch,
+        patch: crate::client::frame::PaneSurfacePatch,
     ) -> ClientPaneSurfacePatchOutcome {
         let Some(current) = self.pane_surface.as_ref() else {
             return ClientPaneSurfacePatchOutcome::Rejected;
@@ -180,7 +180,7 @@ impl ClientShellState {
             rows: patch
                 .rows
                 .iter()
-                .map(|row| crate::protocol::PaneSurfacePatchRow {
+                .map(|row| crate::client::frame::PaneSurfacePatchRow {
                     x: area.x.saturating_add(row.x),
                     y: area.y.saturating_add(row.y),
                     cells: row.cells.clone(),
@@ -189,7 +189,7 @@ impl ClientShellState {
             cursor: patch
                 .cursor
                 .clone()
-                .map(|cursor| crate::protocol::CursorState {
+                .map(|cursor| crate::client::frame::CursorState {
                     x: area.x.saturating_add(cursor.x),
                     y: area.y.saturating_add(cursor.y),
                     visible: cursor.visible,
@@ -221,13 +221,15 @@ impl ClientShellState {
                         rect.height,
                     )
                 });
-                hit.scroll = updated.scroll.map(|metrics| crate::pane::ScrollMetrics {
-                    offset_from_bottom: usize::try_from(metrics.offset_from_bottom)
-                        .unwrap_or(usize::MAX),
-                    max_offset_from_bottom: usize::try_from(metrics.max_offset_from_bottom)
-                        .unwrap_or(usize::MAX),
-                    viewport_rows: usize::try_from(metrics.viewport_rows).unwrap_or(usize::MAX),
-                });
+                hit.scroll = updated
+                    .scroll
+                    .map(|metrics| crate::client::ui_state::ScrollMetrics {
+                        offset_from_bottom: usize::try_from(metrics.offset_from_bottom)
+                            .unwrap_or(usize::MAX),
+                        max_offset_from_bottom: usize::try_from(metrics.max_offset_from_bottom)
+                            .unwrap_or(usize::MAX),
+                        viewport_rows: usize::try_from(metrics.viewport_rows).unwrap_or(usize::MAX),
+                    });
                 hit.mouse_reporting = updated.mouse_reporting;
                 hit.sgr_pixel_mouse = updated.sgr_pixel_mouse;
                 hit.pixel_width = updated.pixel_width;

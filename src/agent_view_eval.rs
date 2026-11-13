@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
-use crate::api::schema::{
+use crate::client::ui_domain::{
     AgentViewBuiltinField, AgentViewBuiltinSortField, AgentViewField, AgentViewFilter,
     AgentViewSort, AgentViewSortField, AgentViewSortOrder, AgentViewValue,
 };
@@ -135,14 +135,14 @@ fn operand_value<'a>(
         AgentViewValue::Context {
             context: view_context,
         } => match view_context {
-            crate::api::schema::AgentViewContext::CurrentWorkspaceId => context
+            crate::client::ui_domain::AgentViewContext::CurrentWorkspaceId => context
                 .workspace_id
                 .as_deref()
                 .map(|value| EvalValue::ScopedId {
                     scope: context.scope,
                     value: Cow::Borrowed(value),
                 }),
-            crate::api::schema::AgentViewContext::CurrentTabId => {
+            crate::client::ui_domain::AgentViewContext::CurrentTabId => {
                 context.tab_id.as_deref().map(|value| EvalValue::ScopedId {
                     scope: context.scope,
                     value: Cow::Borrowed(value),

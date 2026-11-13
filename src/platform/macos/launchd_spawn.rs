@@ -480,7 +480,7 @@ mod tests {
         command
             .args([
                 "--exact",
-                "platform::macos::launchd_spawn::tests::detach_helper",
+                "platform::shared::macos::launchd_spawn::tests::detach_helper",
             ])
             .args(["--ignored", "--test-threads=1"])
             .env(DETACH_HELPER_OUT, &out);

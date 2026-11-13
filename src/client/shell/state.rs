@@ -33,7 +33,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) clipboard_toast_enabled: bool,
     pub(super) clipboard_toast_position: crate::config::ToastClipboardPosition,
     pub(super) theme_name: String,
-    pub(super) theme_runtime: crate::app::state::ThemeRuntimeConfig,
+    pub(super) theme_runtime: crate::client::ui_state::ThemeRuntimeConfig,
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
     pub(super) local_keys: crate::config::KeysConfig,
@@ -76,28 +76,31 @@ pub(super) enum ClientMobileTarget {
     },
     Agent {
         endpoint_id: ClientEndpointId,
-        pane_id: String,
+        target: ClientEndpointFocusTarget,
     },
     Menu(usize),
+    CoreAction(crate::client::ui_action::CoreAction),
+    AttachCoreTerminals,
 }
 
 #[derive(Default)]
 pub(super) struct ShellHitMap {
+    pub(super) available_checkouts: Vec<CheckoutHit>,
     pub(super) machines: Vec<MachineHit>,
     pub(super) workspaces: Vec<WorkspaceHit>,
     pub(super) workspace_body: Rect,
     pub(super) workspace_scrollbar: Rect,
-    pub(super) workspace_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(super) workspace_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(super) workspace_max_scroll: usize,
     pub(super) tabs: Vec<(Rect, String)>,
     pub(super) panes: Vec<PaneHit>,
     pub(super) popup: Option<PaneHit>,
     pub(super) pane_splits: Vec<PaneSplitHit>,
     pub(super) agents: Vec<(Rect, String)>,
-    pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String)>,
+    pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String, ClientEndpointFocusTarget)>,
     pub(super) agent_body: Rect,
     pub(super) agent_scrollbar: Rect,
-    pub(super) agent_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(super) agent_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(super) agent_max_scroll: usize,
     pub(super) agent_sort_toggle: Rect,
     pub(super) sidebar_divider: Rect,
@@ -122,21 +125,23 @@ pub(super) struct ShellHitMap {
     pub(super) navigator_search: Rect,
     pub(super) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(super) navigator_scrollbar: Rect,
-    pub(super) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(super) navigator_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
+    pub(super) core_terminal_search: Rect,
+    pub(super) core_terminal_rows: Vec<(Rect, usize)>,
     pub(super) worktree_search: Rect,
     pub(super) worktree_rows: Vec<(Rect, usize)>,
     pub(super) help_popup: Rect,
     pub(super) help_scrollbar: Rect,
-    pub(super) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(super) help_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(super) help_max_scroll: usize,
     pub(super) settings_popup: Rect,
     pub(super) settings_tabs: Vec<(Rect, ClientSettingsSection)>,
     pub(super) settings_choices: Vec<(Rect, usize)>,
     pub(super) product_announcement_scrollbar: Rect,
-    pub(super) product_announcement_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(super) product_announcement_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(super) product_announcement_max_scroll: usize,
     pub(super) release_notes_scrollbar: Rect,
-    pub(super) release_notes_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(super) release_notes_scroll_metrics: Option<crate::client::ui_state::ScrollMetrics>,
     pub(super) release_notes_max_scroll: usize,
 }
 
@@ -145,7 +150,7 @@ pub(super) struct PaneHit {
     pub(super) rect: Rect,
     pub(super) inner_rect: Rect,
     pub(super) scrollbar_rect: Option<Rect>,
-    pub(super) scroll: Option<crate::pane::ScrollMetrics>,
+    pub(super) scroll: Option<crate::client::ui_state::ScrollMetrics>,
     pub(super) pane_id: String,
     pub(super) popup: bool,
     pub(super) mouse_reporting: bool,
@@ -156,7 +161,8 @@ pub(super) struct PaneHit {
 
 #[derive(Clone)]
 pub(super) struct PaneSplitHit {
-    pub(super) direction: crate::protocol::PaneSurfaceSplitDirection,
+    pub(super) split_id: Option<String>,
+    pub(super) direction: crate::client::ui_model::PaneSurfaceSplitDirection,
     pub(super) pos: u16,
     pub(super) area: Rect,
     pub(super) hit_rect: Rect,
@@ -169,7 +175,7 @@ pub(super) struct ClientPaneMouseGesture {
     pub(super) button: crossterm::event::MouseButton,
     pub(super) stripped_modifiers: crossterm::event::KeyModifiers,
     pub(super) last_event: crossterm::event::MouseEvent,
-    pub(super) last_position: crate::protocol::ClientMousePosition,
+    pub(super) last_position: crate::client::frame::ClientMousePosition,
 }
 
 pub(super) struct ClientWorkspacePress {
@@ -241,10 +247,14 @@ pub(super) struct WorkspaceHit {
 
 #[derive(Debug)]
 pub(crate) enum ClientShellAction {
+    Core(crate::client::ui_action::CoreAction),
+    AttachTerminal {
+        target: crate::client::ui_model::RuntimeTerminalTarget,
+    },
     Endpoint {
         endpoint_id: ClientEndpointId,
         boot_id: String,
-        request: Box<crate::api::schema::Request>,
+        request: Box<crate::client::ui_action::FrontendRequest>,
     },
     ClipboardWrite(Vec<u8>),
     OpenSafeWebUrl(String),
@@ -263,7 +273,7 @@ pub(crate) struct ClientShellInput {
     pub resize: bool,
     pub query_host_appearance: bool,
     pub query_host_theme: bool,
-    pub requests: Vec<ClientMessage>,
+    pub requests: Vec<UiRequest>,
     pub actions: Vec<ClientShellAction>,
 }
 
@@ -282,7 +292,7 @@ pub(super) enum ClientShellOverlayKind {
     ProductAnnouncement,
     ReleaseNotes,
     Rename,
-    ConfirmClose,
+    Confirmation,
     Help,
     Navigator,
     WorktreeCreate,
@@ -290,6 +300,7 @@ pub(super) enum ClientShellOverlayKind {
     WorktreeRemove,
     ContextMenu,
     GlobalMenu,
+    CoreTerminals,
     Settings,
 }
 
@@ -334,6 +345,10 @@ pub(super) enum ClientNavigatorFilter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ClientNavigatorTarget {
+    Checkout {
+        endpoint_id: ClientEndpointId,
+        checkout: std::sync::Arc<ClientShellAvailableCheckout>,
+    },
     Machine {
         endpoint_id: ClientEndpointId,
     },
@@ -354,7 +369,7 @@ pub(super) struct ClientNavigatorRow {
     pub(super) meta: String,
     pub(super) detail: String,
     pub(super) agent: Option<String>,
-    pub(super) status: Option<crate::api::schema::AgentStatus>,
+    pub(super) status: Option<crate::client::ui_domain::AgentStatus>,
     pub(super) stale: bool,
     pub(super) current: bool,
     pub(super) target: ClientNavigatorTarget,
@@ -379,6 +394,8 @@ pub(super) struct ClientHelpOverlay {
 #[derive(Debug)]
 pub(super) struct ClientGlobalMenuOverlay {
     pub(super) highlighted: usize,
+    pub(super) stop_target: Option<crate::client::ui_model::RuntimeTerminalTarget>,
+    pub(super) stop_label: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -416,15 +433,33 @@ pub(super) struct ClientSettingsOverlay {
     pub(super) selected: usize,
     pub(super) original_theme_name: String,
     pub(super) original_palette: Palette,
-    pub(super) integrations: Vec<crate::api::schema::IntegrationInfo>,
+    pub(super) integrations: Vec<crate::client::ui_domain::IntegrationInfo>,
     pub(super) integration_messages: Vec<String>,
     pub(super) loading_integrations: bool,
     pub(super) installing_integrations: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(super) enum ClientWorktreeSource {
+    Workspace(String),
+    #[allow(
+        dead_code,
+        reason = "Constructed by the core adapter; the legacy renderer shares this source type"
+    )]
+    Checkout(crate::client::ui_model::CheckoutTarget),
+}
+impl ClientWorktreeSource {
+    pub(super) fn params(&self) -> (Option<String>, Option<String>) {
+        match self {
+            Self::Workspace(id) => (Some(id.clone()), None),
+            Self::Checkout(target) => (None, Some(target.folder.clone())),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct ClientWorktreeCreateOverlay {
-    pub(super) source_workspace_id: String,
+    pub(super) source: ClientWorktreeSource,
     pub(super) repo_name: String,
     pub(super) branch: TextEditor,
     pub(super) checkout_path: String,
@@ -472,7 +507,7 @@ impl ClientWorktreeOpenEntry {
 
 #[derive(Debug)]
 pub(super) struct ClientWorktreeOpenOverlay {
-    pub(super) source_workspace_id: String,
+    pub(super) source: ClientWorktreeSource,
     pub(super) entries: Vec<ClientWorktreeOpenEntry>,
     pub(super) selected: usize,
     pub(super) query: TextEditor,
@@ -525,10 +560,13 @@ pub(super) enum ClientContextMenuAction {
     Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
+    OpenCheckout,
+    RemoveCheckout,
 }
 
 #[derive(Debug)]
 pub(super) enum ClientContextMenuTarget {
+    Checkout(std::sync::Arc<ClientShellAvailableCheckout>),
     Workspace {
         workspace_id: String,
         is_git: bool,
@@ -582,8 +620,8 @@ pub(super) struct ClientConfirmCloseOverlay {
 #[derive(Debug)]
 pub(super) enum ClientShellOverlay {
     Onboarding,
-    ProductAnnouncement(crate::app::state::ProductAnnouncementState),
-    ReleaseNotes(crate::app::state::ReleaseNotesState),
+    ProductAnnouncement(crate::client::ui_state::ProductAnnouncementState),
+    ReleaseNotes(crate::client::ui_state::ReleaseNotesState),
     Rename(ClientRenameOverlay),
     ConfirmClose(ClientConfirmCloseOverlay),
     Help(ClientHelpOverlay),
@@ -593,6 +631,8 @@ pub(super) enum ClientShellOverlay {
     WorktreeRemove(ClientWorktreeRemoveOverlay),
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
+    CoreTerminals(ClientCoreTerminalOverlay),
+    ConfirmRuntime(ClientRuntimeConfirmation),
     Settings(ClientSettingsOverlay),
 }
 
@@ -603,7 +643,7 @@ impl ClientShellOverlay {
             Self::ProductAnnouncement(_) => ClientShellOverlayKind::ProductAnnouncement,
             Self::ReleaseNotes(_) => ClientShellOverlayKind::ReleaseNotes,
             Self::Rename(_) => ClientShellOverlayKind::Rename,
-            Self::ConfirmClose(_) => ClientShellOverlayKind::ConfirmClose,
+            Self::ConfirmClose(_) | Self::ConfirmRuntime(_) => ClientShellOverlayKind::Confirmation,
             Self::Help(_) => ClientShellOverlayKind::Help,
             Self::Navigator(_) => ClientShellOverlayKind::Navigator,
             Self::WorktreeCreate(_) => ClientShellOverlayKind::WorktreeCreate,
@@ -611,6 +651,7 @@ impl ClientShellOverlay {
             Self::WorktreeRemove(_) => ClientShellOverlayKind::WorktreeRemove,
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
+            Self::CoreTerminals(_) => ClientShellOverlayKind::CoreTerminals,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
         }
     }
@@ -629,10 +670,10 @@ pub(super) enum PendingEndpointKind {
     IntegrationList,
     IntegrationInstall,
     PrepareWorktreeCreate {
-        workspace_id: String,
+        source: ClientWorktreeSource,
     },
     PrepareWorktreeOpen {
-        workspace_id: String,
+        source: ClientWorktreeSource,
     },
     PrepareWorktreeRemove {
         workspace_id: String,
@@ -662,14 +703,14 @@ pub(super) enum PendingEndpointKind {
     },
     CopyMotion {
         pane_id: String,
-        origin: crate::api::schema::PaneTextPoint,
+        origin: crate::client::ui_domain::PaneTextPoint,
         session_generation: u64,
     },
     CopySearch {
         pane_id: String,
-        origin: crate::api::schema::PaneTextPoint,
+        origin: crate::client::ui_domain::PaneTextPoint,
         query: String,
-        direction: crate::api::schema::PaneCopySearchDirection,
+        direction: crate::client::ui_domain::PaneCopySearchDirection,
         repeat: bool,
         generation: u64,
         session_generation: u64,
@@ -712,7 +753,7 @@ pub(crate) struct ClientShellEndpointError {
 
 pub(crate) enum ClientShellNotificationEffect {
     Sound {
-        sound: crate::sound::Sound,
+        sound: crate::sound_kind::Sound,
         agent: Option<String>,
     },
     Terminal {
@@ -738,6 +779,7 @@ pub(crate) struct ClientSystemNotificationTarget {
 pub(super) struct ClientPendingNotification {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) event: SemanticNotification,
+    pub(super) runtime_target: Option<crate::client::ui_model::RuntimeTerminalTarget>,
     pub(super) deadline: std::time::Instant,
     pub(super) expires_at: std::time::Instant,
     pub(super) validate_state: bool,
@@ -746,6 +788,7 @@ pub(super) struct ClientPendingNotification {
 pub(super) struct ClientVisibleNotification {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) event: SemanticNotification,
+    pub(super) runtime_target: Option<crate::client::ui_model::RuntimeTerminalTarget>,
     pub(super) deadline: std::time::Instant,
 }
 
@@ -803,7 +846,7 @@ pub(super) struct ClientSelectionAutoscroll {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientCopySelection {
     Character {
-        anchor: crate::api::schema::PaneTextPoint,
+        anchor: crate::client::ui_domain::PaneTextPoint,
     },
     Linewise {
         anchor_row: u32,
@@ -812,23 +855,23 @@ pub(super) enum ClientCopySelection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ClientCopySearchPrompt {
-    pub(super) direction: crate::api::schema::PaneCopySearchDirection,
+    pub(super) direction: crate::client::ui_domain::PaneCopySearchDirection,
     pub(super) query: TextEditor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ClientCopyOperation {
-    Motion(crate::api::schema::PaneCopyMotion),
+    Motion(crate::client::ui_domain::PaneCopyMotion),
     Search {
         query: String,
-        direction: crate::api::schema::PaneCopySearchDirection,
+        direction: crate::client::ui_domain::PaneCopySearchDirection,
         repeat: bool,
     },
 }
 
 pub(super) struct ClientCopySearchResult {
     pub(super) content_revision: u64,
-    pub(super) matches: Vec<crate::api::schema::PaneTextRange>,
+    pub(super) matches: Vec<crate::client::ui_domain::PaneTextRange>,
     pub(super) total: u64,
     pub(super) current: Option<usize>,
     pub(super) current_global: Option<u64>,
@@ -840,15 +883,15 @@ pub(super) struct ClientCopyModeState {
     pub(super) content_revision: u64,
     pub(super) geometry: (u16, u16),
     pub(super) alternate_screen_active: bool,
-    pub(super) cursor: crate::api::schema::PaneTextPoint,
+    pub(super) cursor: crate::client::ui_domain::PaneTextPoint,
     pub(super) offset_from_bottom: usize,
     pub(super) max_offset_from_bottom: usize,
     pub(super) entry_offset_from_bottom: usize,
     pub(super) selection: Option<ClientCopySelection>,
     pub(super) search_prompt: Option<ClientCopySearchPrompt>,
     pub(super) search_query: String,
-    pub(super) search_direction: Option<crate::api::schema::PaneCopySearchDirection>,
-    pub(super) search_matches: Vec<crate::api::schema::PaneTextRange>,
+    pub(super) search_direction: Option<crate::client::ui_domain::PaneCopySearchDirection>,
+    pub(super) search_matches: Vec<crate::client::ui_domain::PaneTextRange>,
     pub(super) search_total: u64,
     pub(super) search_current: Option<usize>,
     pub(super) search_current_global: Option<u64>,
@@ -934,7 +977,7 @@ pub(crate) struct ClientShellState {
     pub(super) pane_scroll_in_flight: HashMap<String, u64>,
     pub(super) pane_scroll_queued: HashMap<String, usize>,
     pub(super) pane_scroll_targets: HashMap<String, usize>,
-    pub(super) copy_feedback: Option<crate::app::state::CopyFeedback>,
+    pub(super) copy_feedback: Option<crate::client::ui_state::CopyFeedback>,
     pub(super) copy_feedback_deadline: Option<std::time::Instant>,
     pub(super) host_mouse_pixels: Option<crate::input::mouse::HostPixels>,
     pub(super) input_leases: ClientInputLeases,
@@ -962,9 +1005,9 @@ pub(crate) struct ClientShellState {
 }
 
 pub(super) fn product_announcement_state(
-    announcement: &crate::protocol::ClientShellProductAnnouncement,
-) -> crate::app::state::ProductAnnouncementState {
-    crate::app::state::ProductAnnouncementState {
+    announcement: &crate::client::ui_model::ClientShellProductAnnouncement,
+) -> crate::client::ui_state::ProductAnnouncementState {
+    crate::client::ui_state::ProductAnnouncementState {
         version: announcement.version.clone(),
         id: announcement.id.clone(),
         title: announcement.title.clone(),
@@ -975,9 +1018,9 @@ pub(super) fn product_announcement_state(
 }
 
 pub(super) fn release_notes_state(
-    notes: &crate::protocol::ClientShellReleaseNotes,
-) -> crate::app::state::ReleaseNotesState {
-    crate::app::state::ReleaseNotesState {
+    notes: &crate::client::ui_model::ClientShellReleaseNotes,
+) -> crate::client::ui_state::ReleaseNotesState {
+    crate::client::ui_state::ReleaseNotesState {
         version: notes.version.clone(),
         body: notes.body.clone(),
         scroll: 0,
@@ -1021,11 +1064,23 @@ impl ClientShellState {
         }
         let mut remote_collapsed_groups = HashMap::<ClientEndpointId, HashSet<String>>::new();
         for saved in preferences.remote_collapsed_groups {
-            let Ok(profile_id) = crate::client::endpoint::ProfileId::parse(saved.profile_id) else {
-                continue;
+            let endpoint_id = if let Some(machine_id) = saved.profile_id.strip_prefix("core:") {
+                if machine_id.is_empty() {
+                    continue;
+                }
+                ClientEndpointId::Core {
+                    machine_id: machine_id.to_owned(),
+                    local: false,
+                }
+            } else {
+                let Ok(profile_id) = crate::client::endpoint::ProfileId::parse(saved.profile_id)
+                else {
+                    continue;
+                };
+                ClientEndpointId::Ssh(profile_id)
             };
             remote_collapsed_groups
-                .entry(ClientEndpointId::Ssh(profile_id))
+                .entry(endpoint_id)
                 .or_default()
                 .extend(saved.collapsed_groups);
         }
@@ -1301,9 +1356,9 @@ impl ClientShellState {
         mut snapshot: Box<ClientShellSnapshot>,
         generation: Option<u64>,
     ) {
-        snapshot
-            .commands
-            .retain(|command| command.action != crate::protocol::ClientShellCommandAction::Unknown);
+        snapshot.commands.retain(|command| {
+            command.action != crate::client::ui_model::ClientShellCommandAction::Unknown
+        });
         let graphics_scope = match &self.active_endpoint_id {
             // Local direct uploads use image IDs authored by the server from its boot ID.
             ClientEndpointId::Local => snapshot.boot_id.clone(),
@@ -1606,10 +1661,6 @@ impl ClientShellState {
         self.reconcile_input_source();
     }
 
-    pub(crate) fn has_presented_surface(&self) -> bool {
-        self.pane_surface.is_some()
-    }
-
     pub(crate) fn set_pane_surface(&mut self, surface: PaneSurfaceFrame) {
         let Some(snapshot) = self.snapshot.as_ref() else {
             return;
@@ -1823,7 +1874,7 @@ impl ClientShellState {
         if !self.config.clipboard_toast_enabled {
             return false;
         }
-        self.copy_feedback = Some(crate::app::state::CopyFeedback {
+        self.copy_feedback = Some(crate::client::ui_state::CopyFeedback {
             message: "copied to clipboard".to_owned(),
         });
         self.copy_feedback_deadline = Some(now + std::time::Duration::from_secs(2));
@@ -1894,4 +1945,33 @@ impl ClientShellState {
         self.hits = ShellHitMap::default();
         self.host_mouse_pixels = None;
     }
+}
+
+impl ClientShellState {}
+
+#[derive(Debug)]
+pub(super) struct ClientCoreTerminalOverlay {
+    pub(super) title: String,
+    pub(super) query: TextEditor,
+    pub(super) highlighted: usize,
+    pub(super) terminals: Vec<crate::client::ui_model::CoreTerminalView>,
+}
+#[derive(Debug)]
+pub(super) struct ClientRuntimeConfirmation {
+    pub(super) title: String,
+    pub(super) detail: String,
+    pub(super) action: crate::client::ui_action::CoreAction,
+}
+
+#[derive(Clone)]
+pub(super) struct CheckoutHit {
+    pub(super) rect: Rect,
+    pub(super) endpoint_id: ClientEndpointId,
+    pub(super) checkout: std::sync::Arc<crate::client::ui_model::ClientShellAvailableCheckout>,
+    pub(super) group_toggle: Option<(Rect, String)>,
+}
+
+legacy_shell_extensions! {
+    #[path = "state/legacy.rs"]
+    mod legacy;
 }

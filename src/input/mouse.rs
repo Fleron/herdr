@@ -1,26 +1,26 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Position {
+pub enum Position {
     Cell { column: u16, row: u16 },
     Pixels { x: u32, y: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HostGeometry {
-    pub(crate) cols: u16,
-    pub(crate) rows: u16,
-    pub(crate) width_px: u32,
-    pub(crate) height_px: u32,
+pub struct HostGeometry {
+    pub cols: u16,
+    pub rows: u16,
+    pub width_px: u32,
+    pub height_px: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HostPixels {
-    pub(crate) x: u32,
-    pub(crate) y: u32,
-    pub(crate) geometry: HostGeometry,
+pub struct HostPixels {
+    pub x: u32,
+    pub y: u32,
+    pub geometry: HostGeometry,
 }
 
 impl HostGeometry {
-    pub(crate) fn new(cols: u16, rows: u16, width_px: u32, height_px: u32) -> Option<Self> {
+    pub fn new(cols: u16, rows: u16, width_px: u32, height_px: u32) -> Option<Self> {
         (cols > 0 && rows > 0 && width_px > 0 && height_px > 0).then_some(Self {
             cols,
             rows,
@@ -30,7 +30,7 @@ impl HostGeometry {
     }
 
     #[cfg(unix)]
-    pub(crate) fn current() -> Option<Self> {
+    pub fn current() -> Option<Self> {
         let size = crossterm::terminal::window_size().ok()?;
         Self::new(
             size.columns,
@@ -40,7 +40,7 @@ impl HostGeometry {
         )
     }
 
-    pub(crate) fn cell(self, x: u32, y: u32) -> Option<(u16, u16)> {
+    pub fn cell(self, x: u32, y: u32) -> Option<(u16, u16)> {
         let x = x.checked_sub(1)?;
         let y = y.checked_sub(1)?;
         if x >= self.width_px || y >= self.height_px {
@@ -56,7 +56,7 @@ impl HostGeometry {
 }
 
 impl HostPixels {
-    pub(crate) fn pane_position(
+    pub fn pane_position(
         self,
         inner: ratatui::layout::Rect,
         child_width_px: u32,

@@ -135,7 +135,7 @@ pub(crate) fn render_collapsed_sidebar(
         let Some(agent) = snapshot
             .agents
             .iter()
-            .find(|agent| agent.pane_id == pane_id)
+            .find(|agent| agent.agent_id == pane_id)
         else {
             continue;
         };
@@ -212,9 +212,9 @@ pub(crate) fn render_sidebar(
         Rect::new(area.right().saturating_sub(1), area.y, 1, area.height)
     };
     let (workspace_area, detail_area) =
-        crate::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
+        crate::client::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
     hits.sidebar_section_divider =
-        crate::ui::sidebar_section_divider_rect(area, state.sidebar_section_split);
+        crate::client::ui::sidebar_section_divider_rect(area, state.sidebar_section_split);
     put_text(
         buffer,
         workspace_area.x,
@@ -459,115 +459,17 @@ pub(crate) fn workspace_entries(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
 ) -> Vec<WorkspaceEntry> {
-    let mut members = HashMap::<&str, Vec<usize>>::new();
-    for (index, workspace) in snapshot.workspaces.iter().enumerate() {
-        if let Some(worktree) = &workspace.worktree {
-            members.entry(&worktree.key).or_default().push(index);
-        }
-    }
-    let grouped = members
-        .iter()
-        .filter(|(_, indices)| {
-            indices.iter().any(|index| {
-                snapshot.workspaces[*index]
-                    .worktree
-                    .as_ref()
-                    .is_some_and(|worktree| worktree.is_linked_worktree)
-            }) && indices.iter().any(|index| {
-                snapshot.workspaces[*index]
-                    .worktree
-                    .as_ref()
-                    .is_some_and(|worktree| !worktree.is_linked_worktree)
-            })
+    super::checkouts::tree_entries(snapshot, collapsed_groups)
+        .into_iter()
+        .filter_map(|entry| match entry {
+            super::checkouts::SidebarTreeEntry::Workspace(entry) => Some(entry),
+            super::checkouts::SidebarTreeEntry::Checkout { .. } => None,
         })
-        .map(|(key, _)| *key)
-        .collect::<HashSet<_>>();
-    let mut emitted = HashSet::<&str>::new();
-    let mut entries = Vec::new();
-    for (index, workspace) in snapshot.workspaces.iter().enumerate() {
-        let Some(worktree) = workspace
-            .worktree
-            .as_ref()
-            .filter(|worktree| grouped.contains(worktree.key.as_str()))
-        else {
-            entries.push(WorkspaceEntry {
-                index,
-                indented: false,
-                last_child: false,
-            });
-            continue;
-        };
-        if !emitted.insert(&worktree.key) {
-            continue;
-        }
-        let Some(group_members) = members.get(worktree.key.as_str()) else {
-            continue;
-        };
-        for parent in group_members.iter().copied().filter(|member| {
-            snapshot.workspaces[*member]
-                .worktree
-                .as_ref()
-                .is_some_and(|worktree| !worktree.is_linked_worktree)
-        }) {
-            entries.push(WorkspaceEntry {
-                index: parent,
-                indented: false,
-                last_child: false,
-            });
-        }
-        if collapsed_groups.contains(&worktree.key) {
-            if let Some(active) = group_members.iter().copied().find(|member| {
-                let workspace = &snapshot.workspaces[*member];
-                workspace.focused
-                    && workspace
-                        .worktree
-                        .as_ref()
-                        .is_some_and(|worktree| worktree.is_linked_worktree)
-            }) {
-                entries.push(WorkspaceEntry {
-                    index: active,
-                    indented: true,
-                    last_child: true,
-                });
-            }
-            continue;
-        }
-        let children = group_members
-            .iter()
-            .copied()
-            .filter(|member| {
-                snapshot.workspaces[*member]
-                    .worktree
-                    .as_ref()
-                    .is_some_and(|worktree| worktree.is_linked_worktree)
-            })
-            .collect::<Vec<_>>();
-        for (child_index, child) in children.iter().enumerate() {
-            entries.push(WorkspaceEntry {
-                index: *child,
-                indented: true,
-                last_child: child_index + 1 == children.len(),
-            });
-        }
-    }
-    entries
+        .collect()
 }
 
 fn parent_group_key(snapshot: &ClientShellSnapshot, index: usize) -> Option<String> {
-    let workspace = snapshot.workspaces.get(index)?;
-    let worktree = workspace.worktree.as_ref()?;
-    if worktree.is_linked_worktree {
-        return None;
-    }
-    snapshot
-        .workspaces
-        .iter()
-        .any(|candidate| {
-            candidate.worktree.as_ref().is_some_and(|candidate| {
-                candidate.key == worktree.key && candidate.is_linked_worktree
-            })
-        })
-        .then(|| worktree.key.clone())
+    super::checkouts::parent_group_key(snapshot, index)
 }
 
 pub(in crate::client::shell) fn workspace_close_is_group(
@@ -608,7 +510,22 @@ pub(in crate::client::shell) fn render_parent_group_toggle(
     collapsed_groups: &HashSet<String>,
     palette: &Palette,
 ) -> Option<(Rect, String)> {
-    let key = parent_group_key(snapshot, workspace_index)?;
+    render_group_toggle(
+        buffer,
+        workspace_rect,
+        parent_group_key(snapshot, workspace_index)?,
+        collapsed_groups,
+        palette,
+    )
+}
+
+pub(in crate::client::shell) fn render_group_toggle(
+    buffer: &mut Buffer,
+    workspace_rect: Rect,
+    key: String,
+    collapsed_groups: &HashSet<String>,
+    palette: &Palette,
+) -> Option<(Rect, String)> {
     let toggle = Rect::new(
         workspace_rect.right().saturating_sub(1),
         workspace_rect.y,
@@ -634,7 +551,7 @@ pub(in crate::client::shell) fn displayed_workspace_status(
     snapshot: &ClientShellSnapshot,
     workspace: &ClientShellWorkspace,
     collapsed_groups: &HashSet<String>,
-) -> crate::api::schema::AgentStatus {
+) -> crate::client::ui_domain::AgentStatus {
     let Some(worktree) = workspace
         .worktree
         .as_ref()
@@ -662,10 +579,10 @@ pub(in crate::client::shell) fn displayed_workspace_status(
 
 pub(in crate::client::shell) fn workspace_rows(
     workspace: &ClientShellWorkspace,
-    status: crate::api::schema::AgentStatus,
+    status: crate::client::ui_domain::AgentStatus,
     indented: bool,
     config: &SpacesSidebarConfig,
-) -> Vec<Vec<crate::ui::ResolvedToken>> {
+) -> Vec<Vec<crate::client::ui::ResolvedToken>> {
     let label = if indented && !workspace.custom_label {
         workspace
             .branch
@@ -676,9 +593,9 @@ pub(in crate::client::shell) fn workspace_rows(
         &workspace.label
     };
     let token_values = workspace.tokens.iter().cloned().collect::<HashMap<_, _>>();
-    crate::ui::sidebar_space_rows(
+    crate::client::ui::sidebar_space_rows(
         config,
-        crate::ui::SpaceTokenContext {
+        crate::client::ui::SpaceTokenContext {
             workspace: label,
             branch: workspace.branch.as_deref(),
             state_text: status_text(status),
@@ -692,10 +609,46 @@ pub(in crate::client::shell) fn workspace_rows(
 pub(in crate::client::shell) fn render_workspace_rows(
     buffer: &mut Buffer,
     area: Rect,
-    status: crate::api::schema::AgentStatus,
+    status: crate::client::ui_domain::AgentStatus,
     indicators: crate::config::StatusIndicatorStyle,
     entry: &WorkspaceEntry,
-    rows: Vec<Vec<crate::ui::ResolvedToken>>,
+    rows: Vec<Vec<crate::client::ui::ResolvedToken>>,
+    focused: bool,
+    selected: bool,
+    navigating: bool,
+    dragged: bool,
+    palette: &Palette,
+) {
+    render_tree_rows(
+        buffer,
+        area,
+        status,
+        indicators,
+        &WorkspaceRowGeometry {
+            indented: entry.indented,
+            last_child: entry.last_child,
+        },
+        rows,
+        focused,
+        selected,
+        navigating,
+        dragged,
+        palette,
+    );
+}
+
+pub(in crate::client::shell) struct WorkspaceRowGeometry {
+    pub(in crate::client::shell) indented: bool,
+    pub(in crate::client::shell) last_child: bool,
+}
+
+pub(in crate::client::shell) fn render_tree_rows(
+    buffer: &mut Buffer,
+    area: Rect,
+    status: crate::client::ui_domain::AgentStatus,
+    indicators: crate::config::StatusIndicatorStyle,
+    entry: &WorkspaceRowGeometry,
+    rows: Vec<Vec<crate::client::ui::ResolvedToken>>,
     focused: bool,
     selected: bool,
     navigating: bool,
@@ -750,7 +703,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
         } else {
             palette.overlay0
         });
-        let spans = crate::ui::resolved_token_spans(
+        let spans = crate::client::ui::resolved_token_spans(
             row,
             (
                 status_icon(status, indicators),

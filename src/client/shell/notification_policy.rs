@@ -66,7 +66,7 @@ impl ClientShellState {
         let Some(notification) = self.visible_notification.as_ref() else {
             return;
         };
-        if notification.event.pane_id.is_some()
+        if (notification.event.pane_id.is_some() || notification.runtime_target.is_some())
             && !self.endpoint_is_online(&notification.endpoint_id)
         {
             let label = self.endpoint_label(&notification.endpoint_id).to_owned();
@@ -80,12 +80,20 @@ impl ClientShellState {
             .expect("checked visible notification");
         self.promote_queued_notification(std::time::Instant::now());
         outcome.repaint = true;
+        if let Some(target) = notification.runtime_target {
+            outcome
+                .actions
+                .push(ClientShellAction::AttachTerminal { target });
+            return;
+        }
         let Some(pane_id) = notification.event.pane_id else {
             return;
         };
         if notification.endpoint_id == self.active_endpoint_id {
             self.push_endpoint_method(
-                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
+                crate::client::ui_action::FrontendCommand::PaneFocus(
+                    crate::client::ui_domain::PaneTarget { pane_id },
+                ),
                 outcome,
             );
         } else if self.endpoint_is_online(&notification.endpoint_id) {
@@ -96,10 +104,11 @@ impl ClientShellState {
         }
     }
 
-    pub(crate) fn receive_notification(
+    pub(super) fn receive_targeted_notification(
         &mut self,
         endpoint_id: &ClientEndpointId,
         event: SemanticNotification,
+        runtime_target: Option<crate::client::ui_model::RuntimeTerminalTarget>,
         now: std::time::Instant,
     ) -> (Vec<ClientShellNotificationEffect>, bool) {
         let delay = if event.kind == SemanticNotificationKind::Custom {
@@ -110,20 +119,37 @@ impl ClientShellState {
         let deadline = now
             .checked_add(std::time::Duration::from_secs(delay))
             .unwrap_or(now);
-        let cleared_visible = event.pane_id.as_deref().is_some_and(|pane_id| {
-            self.visible_notification.as_ref().is_some_and(|visible| {
-                visible.endpoint_id == *endpoint_id
-                    && visible.event.pane_id.as_deref() == Some(pane_id)
-            })
+        let same_target = |candidate_endpoint: &ClientEndpointId,
+                           candidate_event: &SemanticNotification,
+                           candidate_runtime: &Option<
+            crate::client::ui_model::RuntimeTerminalTarget,
+        >| {
+            candidate_endpoint == endpoint_id
+                && match runtime_target.as_ref() {
+                    Some(target) => candidate_runtime.as_ref() == Some(target),
+                    None => event
+                        .pane_id
+                        .as_ref()
+                        .is_some_and(|pane_id| candidate_event.pane_id.as_ref() == Some(pane_id)),
+                }
+        };
+        let cleared_visible = self.visible_notification.as_ref().is_some_and(|visible| {
+            same_target(
+                &visible.endpoint_id,
+                &visible.event,
+                &visible.runtime_target,
+            )
         });
-        if let Some(pane_id) = event.pane_id.as_deref() {
+        if runtime_target.is_some() || event.pane_id.is_some() {
             self.pending_notifications.retain(|pending| {
-                pending.endpoint_id != *endpoint_id
-                    || pending.event.pane_id.as_deref() != Some(pane_id)
+                !same_target(
+                    &pending.endpoint_id,
+                    &pending.event,
+                    &pending.runtime_target,
+                )
             });
             self.queued_notifications.retain(|queued| {
-                queued.endpoint_id != *endpoint_id
-                    || queued.event.pane_id.as_deref() != Some(pane_id)
+                !same_target(&queued.endpoint_id, &queued.event, &queued.runtime_target)
             });
             if cleared_visible {
                 self.visible_notification = None;
@@ -136,6 +162,7 @@ impl ClientShellState {
         self.pending_notifications.push(ClientPendingNotification {
             endpoint_id: endpoint_id.clone(),
             event,
+            runtime_target,
             deadline,
             expires_at: now.checked_add(COMPLETION_EVIDENCE_GRACE).unwrap_or(now),
             validate_state,
@@ -175,7 +202,11 @@ impl ClientShellState {
                 continue;
             }
             if pending.validate_state {
-                match self.notification_validation(&pending.endpoint_id, &pending.event) {
+                match self.notification_validation(
+                    &pending.endpoint_id,
+                    &pending.event,
+                    pending.runtime_target.as_ref(),
+                ) {
                     NotificationValidation::Current => {}
                     NotificationValidation::AwaitingSnapshot if now < pending.expires_at => {
                         let mut pending = pending;
@@ -191,8 +222,11 @@ impl ClientShellState {
                     }
                 }
             }
-            let target_active =
-                self.notification_target_is_active(&pending.endpoint_id, &pending.event);
+            let target_active = self.notification_target_is_active(
+                &pending.endpoint_id,
+                &pending.event,
+                pending.runtime_target.as_ref(),
+            );
             let suppress_external = target_active && self.outer_focused != Some(false);
             if let Some(sound) = pending.event.sound {
                 let suppress_sound =
@@ -200,8 +234,8 @@ impl ClientShellState {
                 if !suppress_sound {
                     effects.push(ClientShellNotificationEffect::Sound {
                         sound: match sound {
-                            SemanticNotificationSound::Done => crate::sound::Sound::Done,
-                            SemanticNotificationSound::Request => crate::sound::Sound::Request,
+                            SemanticNotificationSound::Done => crate::sound_kind::Sound::Done,
+                            SemanticNotificationSound::Request => crate::sound_kind::Sound::Request,
                         },
                         agent: pending.event.agent.clone(),
                     });
@@ -215,6 +249,7 @@ impl ClientShellState {
                         ClientVisibleNotification {
                             endpoint_id: pending.endpoint_id,
                             event: pending.event,
+                            runtime_target: pending.runtime_target,
                             deadline: now,
                         },
                         now,
@@ -296,6 +331,7 @@ impl ClientShellState {
         &self,
         endpoint_id: &ClientEndpointId,
         event: &SemanticNotification,
+        runtime_target: Option<&crate::client::ui_model::RuntimeTerminalTarget>,
     ) -> bool {
         if endpoint_id != &self.active_endpoint_id {
             return false;
@@ -308,6 +344,12 @@ impl ClientShellState {
         else {
             return false;
         };
+        if let Some(target) = runtime_target {
+            return snapshot.panes.iter().any(|pane| {
+                pane.runtime_target.as_ref() == Some(target)
+                    && snapshot.focused_tab_id.as_ref() == Some(&pane.tab_id)
+            });
+        }
         if let Some(tab_id) = event.tab_id.as_deref() {
             return snapshot.focused_tab_id.as_deref() == Some(tab_id);
         }
@@ -320,8 +362,9 @@ impl ClientShellState {
         &self,
         endpoint_id: &ClientEndpointId,
         event: &SemanticNotification,
+        runtime_target: Option<&crate::client::ui_model::RuntimeTerminalTarget>,
     ) -> NotificationValidation {
-        let Some(pane_id) = event.pane_id.as_deref() else {
+        if runtime_target.is_none() && event.pane_id.is_none() {
             // Finished notifications carry no independently trustworthy completion state. Without
             // a projected pane to verify as Done, do not emit completion chrome or sound.
             return if event.kind == SemanticNotificationKind::Finished {
@@ -329,34 +372,36 @@ impl ClientShellState {
             } else {
                 NotificationValidation::Current
             };
-        };
+        }
         let Some(agent) = self
             .endpoints
             .iter()
             .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
             .and_then(|endpoint| endpoint.snapshot.as_deref())
             .and_then(|snapshot| {
-                snapshot
-                    .agents
-                    .iter()
-                    .find(|agent| agent.pane_id == pane_id)
+                snapshot.agents.iter().find(|agent| match runtime_target {
+                    Some(target) => agent.runtime_target.as_ref() == Some(target),
+                    None => agent.view.as_ref().is_some_and(|view| {
+                        Some(view.pane_id.as_str()) == event.pane_id.as_deref()
+                    }),
+                })
             })
         else {
             return NotificationValidation::AwaitingSnapshot;
         };
         match event.kind {
             SemanticNotificationKind::NeedsAttention
-                if agent.agent_status == crate::api::schema::AgentStatus::Blocked =>
+                if agent.agent_status == crate::client::ui_domain::AgentStatus::Blocked =>
             {
                 NotificationValidation::Current
             }
             SemanticNotificationKind::Finished
-                if agent.agent_status == crate::api::schema::AgentStatus::Done =>
+                if agent.agent_status == crate::client::ui_domain::AgentStatus::Done =>
             {
                 NotificationValidation::Current
             }
             SemanticNotificationKind::Finished
-                if agent.agent_status == crate::api::schema::AgentStatus::Working =>
+                if agent.agent_status == crate::client::ui_domain::AgentStatus::Working =>
             {
                 NotificationValidation::AwaitingSnapshot
             }
@@ -368,4 +413,9 @@ impl ClientShellState {
             }
         }
     }
+}
+
+legacy_shell_extensions! {
+    #[path = "notification_policy/legacy.rs"]
+    mod legacy;
 }

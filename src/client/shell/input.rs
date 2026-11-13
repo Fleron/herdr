@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::ClientPaneInputEvent;
+use crate::client::frame::ClientPaneInputEvent;
 use crate::raw_input::RawInputEvent;
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 
@@ -37,8 +37,8 @@ fn is_modal_paste_shortcut(key: &crate::input::TerminalKey) -> bool {
     is_modal_paste_shortcut_for_platform(key, cfg!(target_os = "macos"))
 }
 
-fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHostThemeUpdate> {
-    use crate::protocol::{
+fn host_theme_update(event: &RawInputEvent) -> Option<crate::client::frame::ClientHostThemeUpdate> {
+    use crate::client::frame::{
         ClientHostAppearance, ClientHostDefaultColorKind, ClientHostThemeUpdate,
     };
 
@@ -73,12 +73,12 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
 }
 
 fn push_host_theme_update(
-    requests: &mut Vec<ClientMessage>,
-    update: crate::protocol::ClientHostThemeUpdate,
+    requests: &mut Vec<UiRequest>,
+    update: crate::client::frame::ClientHostThemeUpdate,
 ) {
-    if let crate::protocol::ClientHostThemeUpdate::PaletteColors(colors) = &update {
-        if let Some(ClientMessage::ClientShellHostTheme {
-            update: crate::protocol::ClientHostThemeUpdate::PaletteColors(pending),
+    if let crate::client::frame::ClientHostThemeUpdate::PaletteColors(colors) = &update {
+        if let Some(UiRequest::HostTheme {
+            update: crate::client::frame::ClientHostThemeUpdate::PaletteColors(pending),
         }) = requests.last_mut()
         {
             if pending.len() + colors.len() <= 256 {
@@ -87,7 +87,7 @@ fn push_host_theme_update(
             }
         }
     }
-    requests.push(ClientMessage::ClientShellHostTheme { update });
+    requests.push(UiRequest::HostTheme { update });
 }
 
 impl ClientShellState {
@@ -182,12 +182,12 @@ impl ClientShellState {
     #[cfg(windows)]
     pub(crate) fn handle_client_events(
         &mut self,
-        events: &[crate::protocol::ClientInputEvent],
+        events: &[crate::client::frame::ClientInputEvent],
     ) -> ClientShellInput {
         self.handle_raw_events(
             events
                 .iter()
-                .map(crate::protocol::ClientInputEvent::to_raw_input_event)
+                .map(crate::client::frame::ClientInputEvent::to_raw_input_event)
                 .collect(),
         )
     }
@@ -320,24 +320,20 @@ impl ClientShellState {
                     if let Some(surface) = self.pane_surface.clone() {
                         outcome.repaint |= self.acknowledge_active_surface_agents(&surface);
                     }
-                    outcome
-                        .requests
-                        .push(ClientMessage::ClientShellFocus { focused: true });
+                    outcome.requests.push(UiRequest::Focus { focused: true });
                 }
                 RawInputEvent::OuterFocusLost => {
                     outcome.repaint |= self.clear_link_hover();
                     self.outer_focused = Some(false);
                     self.release_input_leases(&mut outcome);
-                    outcome
-                        .requests
-                        .push(ClientMessage::ClientShellFocus { focused: false });
+                    outcome.requests.push(UiRequest::Focus { focused: false });
                 }
                 RawInputEvent::HostColorSchemeChanged(appearance) => {
                     self.host_appearance = Some(appearance);
                     self.host_appearance_explicit = true;
                     outcome.query_host_theme = true;
                     if self.config.theme_runtime.auto_switch {
-                        self.config.palette = crate::app::client_palette_for_appearance(
+                        self.config.palette = crate::client::theme::client_palette_for_appearance(
                             &self.config.theme_runtime,
                             appearance,
                         );
@@ -356,10 +352,11 @@ impl ClientShellState {
                         let appearance = color.inferred_appearance();
                         self.host_appearance = Some(appearance);
                         if self.config.theme_runtime.auto_switch {
-                            self.config.palette = crate::app::client_palette_for_appearance(
-                                &self.config.theme_runtime,
-                                appearance,
-                            );
+                            self.config.palette =
+                                crate::client::theme::client_palette_for_appearance(
+                                    &self.config.theme_runtime,
+                                    appearance,
+                                );
                             outcome.repaint = true;
                         }
                     }
@@ -473,9 +470,9 @@ impl ClientShellState {
                 .difference(gesture.stripped_modifiers);
             let geometry = matches!(
                 gesture.last_position,
-                crate::protocol::ClientMousePosition::Pixels { .. }
+                crate::client::frame::ClientMousePosition::Pixels { .. }
             )
-            .then_some(crate::protocol::ClientMouseGeometry {
+            .then_some(crate::client::frame::ClientMouseGeometry {
                 cols: gesture.hit.inner_rect.width,
                 rows: gesture.hit.inner_rect.height,
                 width_px: gesture.hit.pixel_width,
@@ -489,8 +486,8 @@ impl ClientShellState {
             super::push_target_event(
                 target,
                 ClientPaneInputEvent::Mouse {
-                    kind: crate::protocol::ClientMouseKind::Up(
-                        crate::protocol::ClientMouseButton::from_crossterm(gesture.button),
+                    kind: crate::client::frame::ClientMouseKind::Up(
+                        crate::client::frame::ClientMouseButton::from_crossterm(gesture.button),
                     ),
                     position: gesture.last_position,
                     geometry,
@@ -1034,7 +1031,9 @@ impl ClientShellState {
         };
         let pane_id = surface.panes[next].pane_id.clone();
         self.push_endpoint_method(
-            crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
+            crate::client::ui_action::FrontendCommand::PaneFocus(
+                crate::client::ui_domain::PaneTarget { pane_id },
+            ),
             outcome,
         );
     }
@@ -1093,7 +1092,7 @@ impl ClientShellState {
 
     pub(crate) fn clipboard_image_target(
         &self,
-    ) -> Option<crate::protocol::ClientClipboardImageTarget> {
+    ) -> Option<crate::client::frame::ClientClipboardImageTarget> {
         if matches!(
             self.overlay,
             Some(
@@ -1112,7 +1111,7 @@ impl ClientShellState {
             ClientInputTarget::Popup(terminal_id) => Some(terminal_id),
             ClientInputTarget::Pane(_) => None,
         }) {
-            return Some(crate::protocol::ClientClipboardImageTarget::Popup(
+            return Some(crate::client::frame::ClientClipboardImageTarget::Popup(
                 terminal_id,
             ));
         }
@@ -1120,7 +1119,7 @@ impl ClientShellState {
             return None;
         }
         self.focused_pane_id()
-            .map(crate::protocol::ClientClipboardImageTarget::Pane)
+            .map(crate::client::frame::ClientClipboardImageTarget::Pane)
     }
 
     /// The tracked press for a release. A press that arrived as text ("A") is

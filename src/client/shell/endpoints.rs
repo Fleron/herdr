@@ -5,7 +5,7 @@ pub(crate) struct ClientEndpointAgentViewProjection {
     generation: Option<u64>,
     boot_id: String,
     revision: u64,
-    pub(crate) view: Result<Option<crate::api::schema::AgentViewSetParams>, ()>,
+    pub(crate) view: Result<Option<crate::client::ui_domain::AgentViewSetParams>, ()>,
 }
 
 #[derive(Clone, Debug)]
@@ -19,7 +19,7 @@ pub(crate) struct ClientShellEndpoint {
     pub(crate) agent_recency: HashMap<String, u64>,
     pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) agent_view_projection: Option<ClientEndpointAgentViewProjection>,
-    pending_agent_view_projection: Option<ClientEndpointAgentViewProjection>,
+    pub(super) pending_agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pub(crate) agent_view_projection_supported: bool,
     pub(crate) methods: Option<HashSet<String>>,
 }
@@ -33,6 +33,7 @@ pub(super) struct MachineHit {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClientEndpointFocusTarget {
+    Agent(crate::client::ui_model::RuntimeTerminalTarget),
     Workspace(String),
     Tab(String),
     Pane(String),
@@ -44,98 +45,6 @@ pub(crate) enum ClientEndpointFocusTarget {
 }
 
 impl ClientShellState {
-    pub(crate) fn set_endpoint_catalog(&mut self, profiles: &[SavedSshEndpoint]) {
-        let mut next = Vec::with_capacity(profiles.len().saturating_add(1));
-        let local = self
-            .endpoints
-            .iter()
-            .find(|endpoint| endpoint.endpoint_id.is_local())
-            .cloned()
-            .unwrap_or_else(local_endpoint);
-        next.push(local);
-        for profile in profiles {
-            let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
-            let previous = self
-                .endpoints
-                .iter()
-                .find(|endpoint| endpoint.endpoint_id == endpoint_id)
-                .filter(|endpoint| {
-                    profile.enabled && endpoint.status != ClientEndpointStatus::Disabled
-                });
-            next.push(ClientShellEndpoint {
-                endpoint_id,
-                label: profile.label.clone(),
-                status: previous.map_or(
-                    if profile.enabled {
-                        ClientEndpointStatus::Connecting
-                    } else {
-                        ClientEndpointStatus::Disabled
-                    },
-                    |endpoint| endpoint.status,
-                ),
-                snapshot: previous.and_then(|endpoint| endpoint.snapshot.clone()),
-                snapshot_generation: previous.and_then(|endpoint| endpoint.snapshot_generation),
-                agent_recency: previous
-                    .map(|endpoint| endpoint.agent_recency.clone())
-                    .unwrap_or_default(),
-                agent_presentation: previous
-                    .map(|endpoint| endpoint.agent_presentation.clone())
-                    .unwrap_or_default(),
-                agent_view_projection: previous
-                    .and_then(|endpoint| endpoint.agent_view_projection.clone()),
-                pending_agent_view_projection: previous
-                    .and_then(|endpoint| endpoint.pending_agent_view_projection.clone()),
-                agent_view_projection_supported: previous
-                    .is_some_and(|endpoint| endpoint.agent_view_projection_supported),
-                methods: previous.and_then(|endpoint| endpoint.methods.clone()),
-            });
-        }
-
-        if !next
-            .iter()
-            .any(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
-        {
-            self.select_unavailable_local();
-        }
-        self.collapsed_endpoints.retain(|endpoint_id| {
-            next.iter()
-                .any(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        });
-        self.endpoints = next;
-    }
-
-    pub(crate) fn select_unavailable_local(&mut self) {
-        self.reset_endpoint_projection();
-        self.active_endpoint_id = ClientEndpointId::Local;
-        self.mode = ClientShellMode::Terminal;
-        self.snapshot = None;
-        self.graphics.set_scope("local:unavailable");
-        self.reconcile_input_source();
-    }
-
-    pub(crate) fn retire_endpoint(&mut self, endpoint_id: &ClientEndpointId) {
-        self.clear_machine_diagnostic(endpoint_id);
-        if endpoint_id == &self.active_endpoint_id {
-            self.pending_workspace_highlight = None;
-        }
-        self.retire_endpoint_notifications(endpoint_id);
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint.status = ClientEndpointStatus::Disabled;
-            endpoint.snapshot = None;
-            endpoint.snapshot_generation = None;
-            endpoint.methods = None;
-            endpoint.agent_recency.clear();
-            endpoint.agent_presentation = Default::default();
-            endpoint.agent_view_projection = None;
-            endpoint.pending_agent_view_projection = None;
-            endpoint.agent_view_projection_supported = false;
-        }
-    }
-
     pub(crate) fn set_endpoint_status(
         &mut self,
         endpoint_id: &ClientEndpointId,
@@ -157,60 +66,6 @@ impl ClientShellState {
         {
             endpoint.status = status;
         }
-    }
-
-    pub(crate) fn mark_endpoint_disconnected(&mut self, endpoint_id: &ClientEndpointId) {
-        self.set_endpoint_status(endpoint_id, ClientEndpointStatus::Reconnecting);
-        if endpoint_id == &self.active_endpoint_id {
-            let pending = self.pending_requests.keys().cloned().collect::<Vec<_>>();
-            for request_id in pending {
-                self.cancel_endpoint_request(&request_id);
-            }
-            self.pending_integration_installs = 0;
-            self.pane_scroll_in_flight.clear();
-            self.pane_scroll_queued.clear();
-        }
-    }
-
-    pub(crate) fn set_endpoint_agent_view_projection_supported(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        supported: bool,
-    ) {
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint.agent_view_projection_supported = supported;
-            if !supported {
-                endpoint.agent_view_projection = None;
-                endpoint.pending_agent_view_projection = None;
-            }
-        }
-    }
-
-    pub(crate) fn set_endpoint_methods_for(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        methods: Option<Vec<String>>,
-    ) {
-        let methods = methods.map(|methods| methods.into_iter().collect::<HashSet<_>>());
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint.methods = methods;
-        }
-    }
-
-    pub(crate) fn endpoint_projection_available(&self, endpoint_id: &ClientEndpointId) -> bool {
-        self.endpoints.iter().any(|endpoint| {
-            &endpoint.endpoint_id == endpoint_id
-                && endpoint.status == ClientEndpointStatus::Online
-                && endpoint.snapshot.is_some()
-        })
     }
 
     pub(crate) fn activate_endpoint_projection(&mut self, endpoint_id: &ClientEndpointId) -> bool {
@@ -272,191 +127,15 @@ impl ClientShellState {
             && self.endpoint_has_snapshot(endpoint_id)
     }
 
-    pub(crate) fn endpoint_boot_id(&self, endpoint_id: &ClientEndpointId) -> Option<&str> {
-        self.endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)?
-            .snapshot
-            .as_deref()
-            .map(|snapshot| snapshot.boot_id.as_str())
-    }
-
-    pub(crate) fn endpoint_snapshot_matches(
-        &self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        boot_id: &str,
-        revision: u64,
-    ) -> bool {
-        self.endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .is_some_and(|endpoint| {
-                endpoint
-                    .snapshot_generation
-                    .is_none_or(|snapshot_generation| snapshot_generation == generation)
-                    && endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                        snapshot.boot_id == boot_id && snapshot.revision == revision
-                    })
-            })
-    }
-
-    pub(crate) fn endpoint_snapshot_identity(
-        &self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-    ) -> Option<(&str, u64)> {
-        let endpoint = self
-            .endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)?;
-        if endpoint
-            .snapshot_generation
-            .is_some_and(|snapshot_generation| snapshot_generation != generation)
-        {
-            return None;
-        }
-        endpoint
-            .snapshot
-            .as_deref()
-            .map(|snapshot| (snapshot.boot_id.as_str(), snapshot.revision))
-    }
-
-    pub(crate) fn set_endpoint_agent_completions(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        projection: crate::protocol::endpoint::EndpointAgentCompletions,
-    ) {
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint
-                .agent_presentation
-                .receive_completions(Some(generation), projection);
-        }
-    }
-
-    pub(crate) fn set_endpoint_agent_view_projection_for_generation(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        projection: crate::client::endpoint::DecodedAgentViewProjection,
-    ) {
-        self.set_endpoint_agent_view_projection(
-            endpoint_id,
-            Some(generation),
-            projection.boot_id,
-            projection.revision,
-            projection.view,
-        );
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_test_endpoint_agent_view(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        view: Option<crate::api::schema::AgentViewSetParams>,
-    ) {
-        let Some((boot_id, revision)) = self
-            .endpoints
-            .iter()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .and_then(|endpoint| {
-                endpoint
-                    .snapshot
-                    .as_deref()
-                    .map(|snapshot| (snapshot.boot_id.clone(), snapshot.revision))
-            })
-        else {
-            return;
-        };
-        self.set_endpoint_agent_view_projection_supported(endpoint_id, true);
-        self.set_endpoint_agent_view_projection(endpoint_id, None, boot_id, revision, Ok(view));
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_test_endpoint_agent_view_projection(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        boot_id: &str,
-        revision: u64,
-        view: Option<crate::api::schema::AgentViewSetParams>,
-    ) {
-        self.set_endpoint_agent_view_projection(
-            endpoint_id,
-            None,
-            boot_id.to_owned(),
-            revision,
-            Ok(view),
-        );
-    }
-
-    fn set_endpoint_agent_view_projection(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: Option<u64>,
-        boot_id: String,
-        revision: u64,
-        view: Result<Option<crate::api::schema::AgentViewSetParams>, ()>,
-    ) {
-        let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        else {
-            return;
-        };
-        if endpoint.snapshot_generation == generation
-            && endpoint
-                .snapshot
-                .as_deref()
-                .is_some_and(|snapshot| snapshot.boot_id == boot_id && snapshot.revision > revision)
-        {
-            return;
-        }
-        let next = ClientEndpointAgentViewProjection {
-            generation,
-            boot_id,
-            revision,
-            view,
-        };
-        let matches_snapshot = endpoint.snapshot_generation == next.generation
-            && endpoint.snapshot.as_deref().is_some_and(|snapshot| {
-                snapshot.boot_id == next.boot_id && snapshot.revision == next.revision
-            });
-        let slot = if matches_snapshot {
-            &mut endpoint.agent_view_projection
-        } else {
-            &mut endpoint.pending_agent_view_projection
-        };
-        if slot.as_ref().is_some_and(|current| {
-            current.generation == next.generation
-                && current.boot_id == next.boot_id
-                && current.revision >= next.revision
-        }) {
-            return;
-        }
-        *slot = Some(next);
-    }
-
     pub(crate) fn endpoint_agent_view(
         endpoint: &ClientShellEndpoint,
-    ) -> Option<&Result<Option<crate::api::schema::AgentViewSetParams>, ()>> {
+    ) -> Option<&Result<Option<crate::client::ui_domain::AgentViewSetParams>, ()>> {
         let snapshot = endpoint.snapshot.as_deref()?;
         let projection = endpoint.agent_view_projection.as_ref()?;
         (projection.generation == endpoint.snapshot_generation
             && projection.boot_id == snapshot.boot_id
             && projection.revision == snapshot.revision)
             .then_some(&projection.view)
-    }
-
-    /// A terminal normally starts focused. `None` means this host cannot report focus events,
-    /// not that the endpoint has no viewer; activation therefore sends an explicit true baseline.
-    pub(crate) fn host_focus_baseline(&self) -> bool {
-        self.outer_focused.unwrap_or(true)
     }
 
     pub(crate) fn endpoint_label(&self, endpoint_id: &ClientEndpointId) -> &str {
@@ -470,12 +149,12 @@ impl ClientShellState {
         self.endpoint_label(&self.active_endpoint_id)
     }
 
-    pub(crate) fn endpoint_is_active(&self, endpoint_id: &ClientEndpointId) -> bool {
-        &self.active_endpoint_id == endpoint_id
-    }
-
     pub(crate) fn multi_endpoint_active(&self) -> bool {
         self.endpoints.len() > 1
+            || self
+                .endpoints
+                .iter()
+                .any(|endpoint| matches!(endpoint.endpoint_id, ClientEndpointId::Core { .. }))
     }
 
     #[cfg(test)]
@@ -484,18 +163,15 @@ impl ClientShellState {
         self.set_endpoint_snapshot(&endpoint_id, snapshot);
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_endpoint_methods(&mut self, methods: Option<Vec<String>>) {
-        let endpoint_id = self.active_endpoint_id.clone();
-        self.set_endpoint_methods_for(&endpoint_id, methods);
-    }
-
-    pub(super) fn supports_endpoint_method(&self, method: &crate::api::schema::Method) -> bool {
+    pub(super) fn supports_endpoint_method(
+        &self,
+        method: &crate::client::ui_action::FrontendCommand,
+    ) -> bool {
         self.endpoints
             .iter()
             .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
             .and_then(|endpoint| endpoint.methods.as_ref())
-            .is_none_or(|methods| methods.contains(crate::api::api_method_name(method)))
+            .is_none_or(|methods| methods.contains(method.name()))
     }
 
     pub(super) fn focused_tab_count(&self) -> usize {
@@ -511,35 +187,6 @@ impl ClientShellState {
             .count()
     }
 
-    #[cfg(test)]
-    pub(crate) fn cache_endpoint_snapshot(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        snapshot: Box<ClientShellSnapshot>,
-    ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, None, snapshot, true);
-    }
-
-    pub(crate) fn cache_endpoint_snapshot_for_generation(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        snapshot: Box<ClientShellSnapshot>,
-    ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, true);
-    }
-
-    /// Metadata delivered while an endpoint surface is inactive must never advance this
-    /// aggregate client's viewed watermark, even if the frozen source frame still exists.
-    pub(crate) fn cache_endpoint_snapshot_inactive_for_generation(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        snapshot: Box<ClientShellSnapshot>,
-    ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, false);
-    }
-
     fn cache_endpoint_snapshot_with_surface(
         &mut self,
         endpoint_id: &ClientEndpointId,
@@ -547,9 +194,9 @@ impl ClientShellState {
         mut snapshot: Box<ClientShellSnapshot>,
         acknowledge_surface: bool,
     ) {
-        snapshot
-            .commands
-            .retain(|command| command.action != crate::protocol::ClientShellCommandAction::Unknown);
+        snapshot.commands.retain(|command| {
+            command.action != crate::client::ui_model::ClientShellCommandAction::Unknown
+        });
         let Some(index) = self
             .endpoints
             .iter()
@@ -604,19 +251,19 @@ impl ClientShellState {
                     snapshot
                         .agents
                         .iter()
-                        .find(|previous| previous.pane_id == agent.pane_id)
+                        .find(|previous| previous.agent_id == agent.agent_id)
                 })
                 .is_none_or(|previous| previous.state_change_seq != agent.state_change_seq);
             if changed {
                 next_recency = next_recency.saturating_add(1);
-                recency.insert(agent.pane_id.clone(), next_recency);
+                recency.insert(agent.agent_id.clone(), next_recency);
             }
         }
         recency.retain(|pane_id, _| {
             snapshot
                 .agents
                 .iter()
-                .any(|agent| &agent.pane_id == pane_id)
+                .any(|agent| &agent.agent_id == pane_id)
         });
         let endpoint = &mut self.endpoints[index];
         endpoint.agent_recency = recency;
@@ -682,8 +329,17 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot(endpoint_id, snapshot);
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, None, snapshot, true);
         self.apply_cached_endpoint_snapshot(endpoint_id);
+    }
+
+    pub(crate) fn cache_endpoint_snapshot_for_generation(
+        &mut self,
+        endpoint_id: &ClientEndpointId,
+        generation: u64,
+        snapshot: Box<ClientShellSnapshot>,
+    ) {
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, true);
     }
 
     pub(crate) fn set_endpoint_snapshot_for_generation(
@@ -743,4 +399,24 @@ pub(super) fn local_endpoint() -> ClientShellEndpoint {
         agent_view_projection_supported: false,
         methods: None,
     }
+}
+
+pub(super) fn agent_focus_target(
+    agent: &crate::client::ui_model::ClientShellAgent,
+) -> Option<ClientEndpointFocusTarget> {
+    agent
+        .runtime_target
+        .clone()
+        .map(ClientEndpointFocusTarget::Agent)
+        .or_else(|| {
+            agent
+                .view
+                .as_ref()
+                .map(|view| ClientEndpointFocusTarget::Pane(view.pane_id.clone()))
+        })
+}
+
+legacy_shell_extensions! {
+    #[path = "endpoints/legacy.rs"]
+    mod legacy;
 }

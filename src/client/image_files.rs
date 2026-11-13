@@ -16,13 +16,6 @@ pub(crate) struct FileTransport {
 }
 
 impl FileTransport {
-    #[cfg(all(test, unix))]
-    pub(crate) fn for_test(root: PathBuf) -> Self {
-        Self {
-            inner: Some(crate::platform::unix_image_files::Ledger::for_test(root)),
-        }
-    }
-
     pub(crate) fn from_environment() -> Self {
         Self {
             #[cfg(unix)]
@@ -135,4 +128,10 @@ mod tests {
         assert!(transport.probe().is_none());
         assert!(transport.prepare(b"inline").is_none());
     }
+}
+
+legacy_shell_extensions! {
+    #[cfg(all(test, unix))]
+    #[path = "image_files/legacy.rs"]
+    mod legacy;
 }

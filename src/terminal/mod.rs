@@ -3,7 +3,7 @@ mod id;
 mod runtime;
 mod runtime_registry;
 pub mod state;
-mod title;
+use crate::client::terminal_title as title;
 
 pub(crate) use history_read::{merge_scrolled_up, snapshot_text, ScreenSnapshot, UpwardMerge};
 pub use id::TerminalId;

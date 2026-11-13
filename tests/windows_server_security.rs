@@ -1,5 +1,8 @@
 #![cfg(windows)]
 
+#[path = "legacy_binary/mod.rs"]
+mod legacy_binary;
+
 use std::io;
 use std::mem::size_of;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -134,7 +137,7 @@ fn server_integrity_requires_startup_consent_on_both_endpoints() {
             configuration,
         )
         .unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_herdr"));
+        let mut command = Command::new(legacy_binary::path());
         command.args(["--session", "integrity-test", "server"]);
         if allow_unelevated {
             command.arg("--allow-unelevated-clients");

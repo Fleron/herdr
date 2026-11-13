@@ -4,39 +4,38 @@ use std::io::{self, Write};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
-pub(crate) enum GraphicsOperation {
+pub enum GraphicsOperation {
     Bytes(Vec<u8>),
     Upload { control: String, data: Arc<[u8]> },
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct GraphicsOutput {
-    pub(crate) operations: Vec<GraphicsOperation>,
+pub struct GraphicsOutput {
+    pub operations: Vec<GraphicsOperation>,
 }
 
 impl GraphicsOutput {
-    pub(crate) fn from_bytes(bytes: Vec<u8>) -> Self {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
         let mut output = Self::default();
         output.push_bytes(bytes);
         output
     }
 
-    pub(crate) fn push_bytes(&mut self, bytes: Vec<u8>) {
+    pub fn push_bytes(&mut self, bytes: Vec<u8>) {
         if !bytes.is_empty() {
             self.operations.push(GraphicsOperation::Bytes(bytes));
         }
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.operations.is_empty()
     }
 
-    pub(crate) fn extend(&mut self, other: Self) {
+    pub fn extend(&mut self, other: Self) {
         self.operations.extend(other.operations);
     }
 
-    #[cfg(test)]
-    pub(crate) fn into_inline_bytes(self) -> Vec<u8> {
+    pub fn into_inline_bytes(self) -> Vec<u8> {
         let mut bytes = Vec::new();
         for operation in self.operations {
             match operation {

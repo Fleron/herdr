@@ -46,7 +46,7 @@ fn modal_paste_target_requires_a_focused_editable_client_field() {
 
     state.overlay = Some(ClientShellOverlay::WorktreeCreate(
         ClientWorktreeCreateOverlay {
-            source_workspace_id: "ws_1".into(),
+            source:ClientWorktreeSource::Workspace("ws_1".into()),
             repo_name: "repo".into(),
             branch: TextEditor::default(),
             checkout_path: String::new(),
@@ -62,7 +62,7 @@ fn modal_paste_target_requires_a_focused_editable_client_field() {
 
     state.overlay = Some(ClientShellOverlay::WorktreeOpen(
         ClientWorktreeOpenOverlay {
-            source_workspace_id: "ws_1".into(),
+            source:ClientWorktreeSource::Workspace("ws_1".into()),
             entries: Vec::new(),
             selected: 0,
             query: TextEditor::default(),
@@ -141,7 +141,7 @@ fn non_overlay_ctrl_v_is_forwarded_to_the_focused_pane() {
 
     assert!(matches!(
         &outcome.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1"
                 && matches!(&events[..], [ClientPaneInputEvent::Key { .. }])
     ));
@@ -217,7 +217,7 @@ fn popup_owns_keys_text_paste_and_mouse_before_shell_controls() {
         let input = state.handle_input_bytes(bytes);
         assert!(matches!(
             &input.requests[..],
-            [ClientMessage::ClientShellPopupInput { terminal_id, .. }]
+            [UiRequest::PopupInput { terminal_id, .. }]
                 if terminal_id == "terminal-popup"
         ));
         assert_eq!(state.mode, ClientShellMode::Terminal);
@@ -228,13 +228,13 @@ fn popup_owns_keys_text_paste_and_mouse_before_shell_controls() {
     ))]);
     assert!(matches!(
         &text.requests[..],
-        [ClientMessage::ClientShellPopupInput { events, .. }]
+        [UiRequest::PopupInput { events, .. }]
             if matches!(&events[..], [ClientPaneInputEvent::TextCommit(value)] if value == "ime")
     ));
     let paste = state.handle_raw_events(vec![RawInputEvent::Paste("paste".into())]);
     assert!(matches!(
         &paste.requests[..],
-        [ClientMessage::ClientShellPopupInput { events, .. }]
+        [UiRequest::PopupInput { events, .. }]
             if matches!(&events[..], [ClientPaneInputEvent::Paste(value)] if value == "paste")
     ));
 
@@ -247,7 +247,7 @@ fn popup_owns_keys_text_paste_and_mouse_before_shell_controls() {
     })]);
     assert!(matches!(
         &mouse.requests[..],
-        [ClientMessage::ClientShellPopupInput { events, .. }]
+        [UiRequest::PopupInput { events, .. }]
             if matches!(
                 &events[..],
                 [ClientPaneInputEvent::Mouse {
@@ -278,14 +278,14 @@ fn popup_transition_dismisses_client_overlays_and_restores_pane_input_after_clos
     let popup_input = state.handle_input_bytes(b"p");
     assert!(matches!(
         &popup_input.requests[..],
-        [ClientMessage::ClientShellPopupInput { .. }]
+        [UiRequest::PopupInput { .. }]
     ));
 
     state.set_pane_surface(surface());
     let pane_input = state.handle_input_bytes(b"p");
     assert!(matches!(
         &pane_input.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, .. }] if pane_id == "pane_1"
+        [UiRequest::PaneInput { pane_id, .. }] if pane_id == "pane_1"
     ));
 }
 
@@ -298,7 +298,7 @@ fn popup_target_survives_surface_invalidation_during_resize() {
 
     assert!(matches!(
         &state.handle_input_bytes(b"x").requests[..],
-        [ClientMessage::ClientShellPopupInput { terminal_id, .. }]
+        [UiRequest::PopupInput { terminal_id, .. }]
             if terminal_id == "terminal-popup"
     ));
     let mouse = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
@@ -323,7 +323,7 @@ fn popup_close_reprocesses_held_key_repeats_into_the_focused_pane() {
     ))]);
     assert!(matches!(
         &press.requests[..],
-        [ClientMessage::ClientShellPopupInput { .. }]
+        [UiRequest::PopupInput { .. }]
     ));
 
     state.set_pane_surface(surface());
@@ -333,7 +333,7 @@ fn popup_close_reprocesses_held_key_repeats_into_the_focused_pane() {
     )]);
     assert!(matches!(
         &repeat.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, .. }] if pane_id == "pane_1"
+        [UiRequest::PaneInput { pane_id, .. }] if pane_id == "pane_1"
     ));
 }
 
@@ -347,7 +347,7 @@ fn pending_popup_suppresses_held_pane_repeats_but_preserves_release() {
         &state
             .handle_raw_events(vec![RawInputEvent::Key(key.clone())])
             .requests[..],
-        [ClientMessage::ClientShellPaneInput { .. }]
+        [UiRequest::PaneInput { .. }]
     ));
 
     state.popup_pending = true;
@@ -361,7 +361,7 @@ fn pending_popup_suppresses_held_pane_repeats_but_preserves_release() {
     )]);
     assert!(matches!(
         &release.requests[..],
-        [ClientMessage::ClientShellPaneInput { events, .. }]
+        [UiRequest::PaneInput { events, .. }]
             if matches!(
                 &events[..],
                 [ClientPaneInputEvent::Key {
@@ -420,18 +420,18 @@ fn focus_loss_releases_held_pane_keys_before_reporting_focus() {
             unicode: 'x' as u16,
             control_key_state: 0,
         });
-    let press = state.handle_raw_events(vec![RawInputEvent::Key(key)]);
+    let press = state.handle_raw_events(vec![RawInputEvent::Key(key.clone())]);
     assert!(matches!(
         &press.requests[..],
-        [ClientMessage::ClientShellPaneInput { .. }]
+        [UiRequest::PaneInput { .. }]
     ));
 
     let lost = state.handle_raw_events(vec![RawInputEvent::OuterFocusLost]);
     assert!(matches!(
         &lost.requests[..],
         [
-            ClientMessage::ClientShellPaneInput { events, .. },
-            ClientMessage::ClientShellFocus { focused: false }
+            UiRequest::PaneInput { events, .. },
+            UiRequest::Focus { focused: false }
         ] if matches!(
             &events[..],
             [ClientPaneInputEvent::Key {
@@ -440,7 +440,10 @@ fn focus_loss_releases_held_pane_keys_before_reporting_focus() {
             }]
         )
     ));
-    assert!(state.input_leases.is_empty());
+    let release = state.handle_raw_events(vec![RawInputEvent::Key(
+        key.with_kind(crossterm::event::KeyEventKind::Release),
+    )]);
+    assert!(release.requests.is_empty());
 }
 
 #[test]
@@ -461,7 +464,7 @@ fn focus_loss_releases_active_pane_mouse_before_reporting_focus() {
     })]);
     assert!(matches!(
         &down.requests[..],
-        [ClientMessage::ClientShellPaneInput { .. }]
+        [UiRequest::PaneInput { .. }]
     ));
     assert!(state.pane_mouse_gesture.is_some());
 
@@ -469,8 +472,8 @@ fn focus_loss_releases_active_pane_mouse_before_reporting_focus() {
     assert!(matches!(
         &lost.requests[..],
         [
-            ClientMessage::ClientShellPaneInput { pane_id, events },
-            ClientMessage::ClientShellFocus { focused: false }
+            UiRequest::PaneInput { pane_id, events },
+            UiRequest::Focus { focused: false }
         ] if pane_id == "pane_1" && matches!(
             &events[..],
             [ClientPaneInputEvent::Mouse {
@@ -495,7 +498,7 @@ fn focus_gain_reports_focus_and_honors_redraw_policy() {
     assert!(gained.query_host_appearance);
     assert!(matches!(
         &gained.requests[..],
-        [ClientMessage::ClientShellFocus { focused: true }]
+        [UiRequest::Focus { focused: true }]
     ));
 }
 
@@ -517,7 +520,7 @@ fn pane_mouse_release_survives_popup_open_transition() {
     })]);
     assert!(matches!(
         &down.requests[..],
-        [ClientMessage::ClientShellPaneInput { .. }]
+        [UiRequest::PaneInput { .. }]
     ));
     assert!(state.pane_mouse_gesture.is_some());
 
@@ -530,7 +533,7 @@ fn pane_mouse_release_survives_popup_open_transition() {
     })]);
     assert!(matches!(
         &up.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1"
                 && matches!(
                     &events[..],
@@ -549,7 +552,7 @@ fn pane_mouse_release_survives_popup_open_transition() {
 fn popup_command_blocks_underlying_input_until_surface_or_error() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("t"),
+        bindings: crate::config::ActionKeybinds::from_labels(&["prefix+t".into()]).unwrap(),
         label: "prefix+t".into(),
         command: "secret-popup-command".into(),
         action: crate::config::CustomCommandAction::Popup,
@@ -560,11 +563,11 @@ fn popup_command_blocks_underlying_input_until_surface_or_error() {
     let mut projection = snapshot();
     projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "cmd_popup".into(),
             binding_label: binding.label.clone(),
             binding_labels: binding.bindings.labels(),
-            action: crate::protocol::ClientShellCommandAction::Popup,
+            action: crate::client::ui_model::ClientShellCommandAction::Popup,
             description: None,
         });
     state.set_snapshot(Box::new(projection));
@@ -598,11 +601,11 @@ fn popup_command_blocks_underlying_input_until_surface_or_error() {
     assert!(!state.popup_pending);
     assert!(matches!(
         &state.handle_input_bytes(b"p").requests[..],
-        [ClientMessage::ClientShellPaneInput { .. }]
+        [UiRequest::PaneInput { .. }]
     ));
 
     let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("t"),
+        bindings: crate::config::ActionKeybinds::from_labels(&["prefix+t".into()]).unwrap(),
         label: "prefix+t".into(),
         command: "secret-popup-command".into(),
         action: crate::config::CustomCommandAction::Popup,
@@ -619,7 +622,7 @@ fn popup_command_blocks_underlying_input_until_surface_or_error() {
     state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::Ok {}),
+        Ok(crate::client::ui_domain::ResponseResult::Ok {}),
     );
     assert!(state.popup_pending);
     assert!(state
@@ -674,7 +677,7 @@ fn shell_ignores_older_same_boot_snapshot_and_surface() {
         &state
             .handle_raw_events(vec![RawInputEvent::Key(held_key.clone())])
             .requests[..],
-        [ClientMessage::ClientShellPaneInput { .. }]
+        [UiRequest::PaneInput { .. }]
     ));
 
     let mut stale_snapshot = snapshot();
@@ -763,7 +766,7 @@ fn resize_invalidation_drops_stale_hits_but_preserves_gesture_release() {
         })]);
     assert!(matches!(
         &release.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1"
                 && matches!(
                     &events[..],
@@ -789,7 +792,7 @@ fn pane_scrollbar_track_and_thumb_use_stable_endpoint_scroll_requests() {
         width: 1,
         height: 2,
     });
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -816,10 +819,10 @@ fn pane_scrollbar_track_and_thumb_use_stable_endpoint_scroll_requests() {
             ClientShellAction::Endpoint { request: scroll, .. }
         ] if matches!(
             &focus.method,
-            crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+            crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_1"
         ) && matches!(
             &scroll.method,
-            crate::api::schema::Method::PaneScroll(params)
+            crate::client::ui_action::FrontendCommand::PaneScroll(params)
                 if params.pane_id == "pane_1"
                     && params.offset_from_bottom == expected as u64
         )
@@ -847,7 +850,7 @@ fn pane_scrollbar_track_and_thumb_use_stable_endpoint_scroll_requests() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+                crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_1"
             )
     ));
     assert!(matches!(
@@ -867,7 +870,7 @@ fn pane_scrollbar_track_and_thumb_use_stable_endpoint_scroll_requests() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.pane_id == "pane_1"
                         && params.offset_from_bottom == expected as u64
             )
@@ -897,7 +900,7 @@ fn clear_pane_binding_targets_the_focused_endpoint_pane() {
     assert!(matches!(
         &input.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(&request.method, crate::api::schema::Method::PaneClear(target)
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneClear(target)
                 if target.pane_id == "pane_1")
     ));
 }
@@ -919,7 +922,7 @@ fn edit_scrollback_binding_targets_the_focused_endpoint_pane() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneEditScrollback(target)
+                crate::client::ui_action::FrontendCommand::PaneEditScrollback(target)
                     if target.pane_id == "pane_1"
             )
     ));
@@ -937,10 +940,10 @@ fn sidebar_scrollbars_use_proportional_shared_geometry_and_drag() {
         projected.workspaces.push(workspace);
     }
     for index in 1..=10 {
-        projected.agents.push(crate::protocol::ClientShellAgent {
-            pane_id: format!("agent-pane-{index}"),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+        projected.agents.push(crate::client::ui_model::ClientShellAgent {
+            agent_id: format!("agent-pane-{index}"),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:format!("agent-pane-{index}"),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some(format!("agent-{index}")),
             display_agent: None,
             agent: Some("codex".into()),
@@ -1033,7 +1036,7 @@ fn pending_scroll_target_does_not_relabel_an_older_surface() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -1165,7 +1168,7 @@ fn retained_surface_patch_updates_scrollbar_cells_and_pane_hit_metadata() {
         width: 1,
         height: 2,
     });
-    updated_pane.scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    updated_pane.scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 2,
         max_offset_from_bottom: 8,
         viewport_rows: 2,

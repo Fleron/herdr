@@ -62,7 +62,7 @@ impl RenderPipeline {
             1,
             None,
             None,
-        )));
+        ).into()));
 
         Self {
             app,
@@ -109,7 +109,7 @@ impl RenderPipeline {
             splits: rendered.splits,
             popup: rendered.popup,
             graphics: rendered.graphics,
-        });
+        }.into());
         black_box(
             self.client
                 .compose(COLS, ROWS)
@@ -349,7 +349,7 @@ fn print_token_rule_profiles() {
                         1,
                         None,
                         None,
-                    )));
+                    ).into()));
                 (count, profile_pipeline(pipeline))
             });
             println!(

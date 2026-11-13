@@ -1,5 +1,7 @@
 [package]
 name = "herdr"
+autobins = false
+default-run = "herdr"
 version = "0.9.5"
 edition = "2021"
 build = "build.rs"
@@ -23,6 +25,20 @@ include = [
 [workspace]
 members = ["crates/ghostty-vt"]
 default-members = [".", "crates/ghostty-vt"]
+
+[lib]
+name = "herdr_core_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "herdr"
+path = "src/core_main.rs"
+test = true
+
+[[example]]
+name = "legacy-regression"
+path = "src/main.rs"
+test = true
 
 [dependencies]
 ghostty-vt = { path = "crates/ghostty-vt" }

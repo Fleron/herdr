@@ -125,8 +125,8 @@ pub(super) fn render_mode_bar(
                 let copy_mode = copy_mode?;
                 if let Some(prompt) = copy_mode.search_prompt.as_ref() {
                     let marker = match prompt.direction {
-                        crate::api::schema::PaneCopySearchDirection::Forward => "/",
-                        crate::api::schema::PaneCopySearchDirection::Backward => "?",
+                        crate::client::ui_domain::PaneCopySearchDirection::Forward => "/",
+                        crate::client::ui_domain::PaneCopySearchDirection::Backward => "?",
                     };
                     buffer.set_stringn(bar.x, bar.y, " COPY ", usize::from(bar.width), mode_style);
                     let prefix = 8.min(bar.width);
@@ -268,7 +268,12 @@ pub(super) fn render_shell(
         );
     }
     if layout.sidebar.width > 0 {
-        if state.endpoints.len() > 1 {
+        if state.endpoints.len() > 1
+            || state
+                .endpoints
+                .iter()
+                .any(|endpoint| matches!(endpoint.endpoint_id, ClientEndpointId::Core { .. }))
+        {
             if state.sidebar_collapsed {
                 super::endpoint_sidebar::render_collapsed(
                     buffer,
@@ -332,6 +337,7 @@ pub(super) fn render_shell(
         hits.workspaces.clear();
         hits.agents.clear();
         hits.endpoint_agents.clear();
+        hits.available_checkouts.clear();
         hits.tab_scroll_left = Rect::default();
         hits.tab_scroll_right = Rect::default();
         hits.new_tab = Rect::default();

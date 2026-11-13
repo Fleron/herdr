@@ -324,7 +324,7 @@ impl ClientState {
 
     pub(super) fn present_surface_patch(
         &mut self,
-        patch: shell::ClientComposedSurfacePatch,
+        patch: shell::surface_patch::ClientComposedSurfacePatch,
     ) -> io::Result<bool> {
         if self.presentation_frozen
             || self.repaint_pending

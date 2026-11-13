@@ -11,45 +11,19 @@ pub(super) fn metadata_token_patch_schema(
     })
 }
 
-pub(super) fn metadata_token_values_schema(
-    _generator: &mut schemars::SchemaGenerator,
-) -> schemars::Schema {
-    schemars::json_schema!({
-        "type": "object",
-        "maxProperties": 32,
-        "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,32}$" },
-        "additionalProperties": { "type": "string" }
-    })
-}
+pub use crate::client::ui_domain::common::metadata_token_values_schema;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
-pub struct EmptyParams {}
+pub use crate::client::ui_domain::common::EmptyParams;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WorkspaceTarget {
-    pub workspace_id: String,
-}
+pub use crate::client::ui_domain::common::WorkspaceTarget;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneTarget {
-    pub pane_id: String,
-}
+pub use crate::client::ui_domain::common::PaneTarget;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct ProductAnnouncementDismissParams {
-    pub version: String,
-    pub id: String,
-}
+pub use crate::client::ui_domain::common::ProductAnnouncementDismissParams;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct ReleaseNotesDismissParams {
-    pub version: String,
-}
+pub use crate::client::ui_domain::common::ReleaseNotesDismissParams;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct TabTarget {
-    pub tab_id: String,
-}
+pub use crate::client::ui_domain::common::TabTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentTarget {
@@ -74,12 +48,7 @@ pub struct ClientShellSurfaceSetParams {
     pub active: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SplitDirection {
-    Right,
-    Down,
-}
+pub use crate::client::ui_domain::common::SplitDirection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -242,15 +211,7 @@ pub enum PaneAgentState {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentStatus {
-    Idle,
-    Working,
-    Blocked,
-    Done,
-    Unknown,
-}
+pub use crate::client::ui_domain::common::AgentStatus;
 
 pub(crate) fn default_true() -> bool {
     true

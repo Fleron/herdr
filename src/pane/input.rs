@@ -1,3 +1,26 @@
+#[cfg(test)]
+pub(crate) fn test_encode_key_for_app(
+    app_output: &[u8],
+    key: crate::input::TerminalKey,
+) -> Vec<u8> {
+    let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).expect("terminal");
+    terminal.write(app_output);
+    let legacy = terminal.kitty_keyboard_flags().expect("keyboard flags") == 0
+        && !terminal
+            .modify_other_keys_enabled()
+            .expect("modifyOtherKeys");
+    if legacy && legacy_super_chord(&key) {
+        return Vec::new();
+    }
+    let key = if legacy { legacy_shell_key(key) } else { key };
+    let Some(event) = ghostty_key_event_from_terminal_key(&key, legacy) else {
+        return Vec::new();
+    };
+    let mut encoder = crate::ghostty::KeyEncoder::new().expect("key encoder");
+    configure_key_encoder(&mut encoder, &terminal);
+    encoder.encode(&event).expect("encoded key")
+}
+
 /// Build the key event the Ghostty app would build from an OS key event, so
 /// libghostty can encode it for the pane's current keyboard modes: physical
 /// key, modifiers, the layout text, the unshifted codepoint, and Shift marked
@@ -6,7 +29,7 @@
 ///
 /// Hyper and Meta have no Ghostty equivalent, so those chords are not
 /// forwarded rather than typed as their bare key.
-pub(super) fn ghostty_key_event_from_terminal_key(
+pub fn ghostty_key_event_from_terminal_key(
     key: &crate::input::TerminalKey,
     legacy_pane: bool,
 ) -> Option<crate::ghostty::KeyEvent> {
@@ -94,7 +117,7 @@ pub(super) fn ghostty_key_event_from_terminal_key(
 /// Configure `encoder` for a pane's live terminal modes. Herdr has already
 /// decoded Alt from the host, so macOS Option must keep its Alt meaning (ESC
 /// prefix) instead of being treated as a text modifier.
-pub(super) fn configure_key_encoder(
+pub fn configure_key_encoder(
     encoder: &mut crate::ghostty::KeyEncoder,
     terminal: &crate::ghostty::Terminal,
 ) {
@@ -106,7 +129,7 @@ pub(super) fn configure_key_encoder(
 /// these chords as escape sequences that plain shells do not understand; keep
 /// the classic key instead. libghostty still encodes the result (so Alt keeps
 /// its ESC prefix).
-pub(super) fn legacy_shell_key(key: crate::input::TerminalKey) -> crate::input::TerminalKey {
+pub fn legacy_shell_key(key: crate::input::TerminalKey) -> crate::input::TerminalKey {
     use crossterm::event::{KeyCode, KeyModifiers};
 
     let alt = key.modifiers & KeyModifiers::ALT;
@@ -147,7 +170,7 @@ pub(super) fn legacy_shell_key(key: crate::input::TerminalKey) -> crate::input::
 /// Super, so these chords are not forwarded. Typing the bare key turns Cmd+C
 /// into "c" (#3710), and a Kitty report prints as garbage in plain shells
 /// (#4356). Ghostty on macOS sends nothing for them either.
-pub(super) fn legacy_super_chord(key: &crate::input::TerminalKey) -> bool {
+pub fn legacy_super_chord(key: &crate::input::TerminalKey) -> bool {
     key.modifiers
         .contains(crossterm::event::KeyModifiers::SUPER)
 }
@@ -194,7 +217,7 @@ fn unshifted_letter(c: char) -> char {
     }
 }
 
-pub(super) fn ghostty_mods_from_key_modifiers(modifiers: crossterm::event::KeyModifiers) -> u16 {
+pub fn ghostty_mods_from_key_modifiers(modifiers: crossterm::event::KeyModifiers) -> u16 {
     let mut ghostty_mods = 0u16;
     if modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
         ghostty_mods |= crate::ghostty::MOD_SHIFT;
@@ -211,7 +234,7 @@ pub(super) fn ghostty_mods_from_key_modifiers(modifiers: crossterm::event::KeyMo
     ghostty_mods
 }
 
-pub(super) fn ghostty_mouse_encoder_for_terminal(
+pub fn ghostty_mouse_encoder_for_terminal(
     terminal: &crate::ghostty::Terminal,
     position: crate::input::mouse::Position,
 ) -> Option<(crate::ghostty::MouseEncoder, (f32, f32))> {
@@ -264,7 +287,7 @@ fn cell_center_px(index: u32, count: u32, extent: u32) -> Option<u32> {
     u32::try_from(start + end.saturating_sub(start) / 2).ok()
 }
 
-pub(super) fn ghostty_mouse_event_from_button_kind(
+pub fn ghostty_mouse_event_from_button_kind(
     kind: crossterm::event::MouseEventKind,
     column: u16,
     row: u16,
@@ -321,7 +344,7 @@ pub(super) fn ghostty_mouse_event_from_button_kind(
     Some(event)
 }
 
-pub(super) fn ghostty_mouse_event_from_motion_kind(
+pub fn ghostty_mouse_event_from_motion_kind(
     kind: crossterm::event::MouseEventKind,
     column: u16,
     row: u16,
@@ -339,7 +362,7 @@ pub(super) fn ghostty_mouse_event_from_motion_kind(
     Some(event)
 }
 
-pub(super) fn ghostty_mouse_event_from_wheel_kind(
+pub fn ghostty_mouse_event_from_wheel_kind(
     kind: crossterm::event::MouseEventKind,
     column: u16,
     row: u16,

@@ -13,9 +13,13 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "windows/clipboard_image.rs"]
 mod clipboard_image;
+#[path = "windows/config_backup.rs"]
 mod config_backup;
+#[path = "windows/notifications.rs"]
 mod notifications;
+#[path = "windows/power.rs"]
 mod power;
 pub(crate) use notifications::{
     foreground_desktop_notification_host, maybe_activate_desktop_notification,
@@ -4066,7 +4070,7 @@ mod tests {
         child
             .args([
                 "--exact",
-                "platform::windows::tests::windows_daemon_readiness_checks_job_limits_and_console",
+                "platform::shared::windows::tests::windows_daemon_readiness_checks_job_limits_and_console",
                 "--nocapture",
             ])
             .env(CHILD_ENV, "1");

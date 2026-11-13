@@ -9,6 +9,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 
 #[cfg(test)]
+#[path = "config_backup/tests.rs"]
 mod tests;
 
 fn backup_paths(target: &Path) -> (PathBuf, PathBuf) {

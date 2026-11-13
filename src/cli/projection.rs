@@ -647,6 +647,14 @@ macro_rules! cli_projection {
 }
 
 macro_rules! cli_params {
+    ($(#[$attribute:meta])* $visibility:vis struct $params:ident = $shared:path => $projection:ident {
+        $($(#[$field_attribute:meta])* $field_visibility:vis $field:ident: $type:ty => $binding:expr),* $(,)?
+    }) => {
+        $visibility use $shared as $params;
+        $crate::cli::projection::cli_projection! {
+            pub(crate) $projection for $params { $($field => $binding),* }
+        }
+    };
     ($(#[$attribute:meta])* $visibility:vis struct $params:ident => $projection:ident {
         $($(#[$field_attribute:meta])* $field_visibility:vis $field:ident: $type:ty => $binding:expr),* $(,)?
     }) => {

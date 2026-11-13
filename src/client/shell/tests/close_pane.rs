@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::schema::Method;
+use crate::client::ui_action::FrontendCommand as Method;
 use crossterm::event::{MouseButton, MouseEventKind};
 
 fn close_state(confirm: bool, tab_count: usize) -> ClientShellState {

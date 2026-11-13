@@ -27,18 +27,16 @@ impl TextCommit {
         &self.text
     }
 
-    pub(crate) fn into_string(self) -> String {
+    pub fn into_string(self) -> String {
         self.text
     }
 }
 
-#[cfg(any(windows, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhysicalKeyId(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyIdentity {
-    #[cfg(any(windows, test))]
     Physical(PhysicalKeyId),
     Semantic(KeyCode),
 }
@@ -49,14 +47,12 @@ pub(crate) enum KeySource {
     Vt {
         bytes: Vec<u8>,
     },
-    #[cfg(any(windows, test))]
     WindowsConsole {
         record: WindowsKeyRecord,
         physical_key: Option<PhysicalKeyId>,
     },
 }
 
-#[cfg(any(windows, test))]
 impl WindowsKeyRecord {
     fn physical_key_id(self) -> Option<PhysicalKeyId> {
         const ENHANCED_KEY: u32 = 0x0100;
@@ -108,7 +104,7 @@ impl TerminalKey {
         self
     }
 
-    pub(crate) fn layout_key(&self) -> Option<char> {
+    pub fn layout_key(&self) -> Option<char> {
         self.layout_key
     }
 
@@ -130,7 +126,7 @@ impl TerminalKey {
         self
     }
 
-    pub(crate) fn with_modifiers(mut self, modifiers: KeyModifiers) -> Self {
+    pub fn with_modifiers(mut self, modifiers: KeyModifiers) -> Self {
         self.modifiers = modifiers;
         self
     }
@@ -140,7 +136,7 @@ impl TerminalKey {
         self
     }
 
-    pub(crate) fn with_generated_text(mut self, text: Option<String>) -> Self {
+    pub fn with_generated_text(mut self, text: Option<String>) -> Self {
         self.generated_text = if self.kind == crossterm::event::KeyEventKind::Release {
             None
         } else {
@@ -149,12 +145,11 @@ impl TerminalKey {
         self
     }
 
-    pub(crate) fn with_vt_bytes(mut self, bytes: Vec<u8>) -> Self {
+    pub fn with_vt_bytes(mut self, bytes: Vec<u8>) -> Self {
         self.source = KeySource::Vt { bytes };
         self
     }
 
-    #[cfg(any(windows, test))]
     pub fn with_windows_record(mut self, record: WindowsKeyRecord) -> Self {
         self = self.with_windows_composition_hint(Some(record));
         self.repeat_count = if self.kind == crossterm::event::KeyEventKind::Release {
@@ -171,10 +166,7 @@ impl TerminalKey {
         self
     }
 
-    pub(crate) fn with_windows_composition_hint(
-        mut self,
-        record: Option<WindowsKeyRecord>,
-    ) -> Self {
+    pub fn with_windows_composition_hint(mut self, record: Option<WindowsKeyRecord>) -> Self {
         // AltGr is normalized to text-only modifiers by the Windows input mapper.
         // Command chords can also have zero Unicode, so retain their fallback keys.
         self.windows_dead_key = matches!(self.code, KeyCode::Char(_))
@@ -183,40 +175,35 @@ impl TerminalKey {
         self
     }
 
-    pub(crate) fn with_physical_identity_hint(mut self, physical: bool) -> Self {
+    pub fn with_physical_identity_hint(mut self, physical: bool) -> Self {
         self.physical_identity_hint = physical;
         self
     }
 
-    pub(crate) fn vt_bytes(&self) -> Option<&[u8]> {
+    pub fn vt_bytes(&self) -> Option<&[u8]> {
         match &self.source {
             KeySource::Vt { bytes } => Some(bytes),
             _ => None,
         }
     }
 
-    pub(crate) fn windows_record(&self) -> Option<WindowsKeyRecord> {
-        #[cfg(any(windows, test))]
+    pub fn windows_record(&self) -> Option<WindowsKeyRecord> {
         match self.source {
             KeySource::WindowsConsole { record, .. } => Some(record),
             KeySource::Synthesized | KeySource::Vt { .. } => None,
         }
-        #[cfg(not(any(windows, test)))]
-        None
     }
 
-    pub(crate) fn is_windows_dead_key(&self) -> bool {
+    pub fn is_windows_dead_key(&self) -> bool {
         self.windows_dead_key
     }
 
-    pub(crate) fn identity(&self) -> KeyIdentity {
+    pub fn identity(&self) -> KeyIdentity {
         match self.source {
-            #[cfg(any(windows, test))]
             KeySource::WindowsConsole {
                 physical_key: Some(physical_key),
                 ..
             } => KeyIdentity::Physical(physical_key),
-            #[cfg(any(windows, test))]
             KeySource::WindowsConsole {
                 physical_key: None, ..
             } => KeyIdentity::Semantic(self.code),
@@ -226,18 +213,16 @@ impl TerminalKey {
         }
     }
 
-    pub(crate) fn has_physical_identity(&self) -> bool {
+    pub fn has_physical_identity(&self) -> bool {
         self.physical_identity_hint || self.physical_key_id().is_some()
     }
 
-    pub(crate) fn physical_key_id(&self) -> Option<u32> {
+    pub fn physical_key_id(&self) -> Option<u32> {
         match &self.source {
-            #[cfg(any(windows, test))]
             KeySource::WindowsConsole {
                 physical_key: Some(PhysicalKeyId(id)),
                 ..
             } => Some(*id),
-            #[cfg(any(windows, test))]
             KeySource::WindowsConsole {
                 physical_key: None, ..
             } => None,
@@ -346,16 +331,15 @@ impl KeyboardProtocol {
         }
     }
 
-    pub(crate) fn reports_event_types(self) -> bool {
+    pub fn reports_event_types(self) -> bool {
         matches!(self, Self::Kitty { flags } if flags & 0b0000_0010 != 0)
     }
 
-    pub(crate) fn reports_all_keys(self) -> bool {
+    pub fn reports_all_keys(self) -> bool {
         matches!(self, Self::Kitty { flags } if flags & KITTY_FLAG_REPORT_ALL_KEYS != 0)
     }
 }
 
-#[cfg(any(unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MouseProtocolMode {
@@ -366,7 +350,6 @@ pub enum MouseProtocolMode {
     AnyMotion,
 }
 
-#[cfg(any(unix, test))]
 impl MouseProtocolMode {
     #[cfg(test)]
     pub fn reporting_enabled(self) -> bool {
@@ -374,7 +357,6 @@ impl MouseProtocolMode {
     }
 }
 
-#[cfg(any(unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MouseProtocolEncoding {

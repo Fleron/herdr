@@ -1,5 +1,5 @@
 #[derive(Clone, Copy)]
-pub(crate) enum ConfigEdit<'a> {
+pub enum ConfigEdit<'a> {
     Theme(&'a str),
     StatusIndicators(super::StatusIndicatorStyle),
     Sound(bool),
@@ -7,7 +7,7 @@ pub(crate) enum ConfigEdit<'a> {
 }
 
 impl ConfigEdit<'_> {
-    pub(crate) fn description(self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             Self::Theme(_) => "theme",
             Self::StatusIndicators(_) => "status indicators",
@@ -16,7 +16,7 @@ impl ConfigEdit<'_> {
         }
     }
 
-    pub(crate) fn apply(self, content: &str) -> String {
+    pub fn apply(self, content: &str) -> String {
         match self {
             Self::Theme(name) => {
                 let content =
@@ -46,7 +46,7 @@ impl ConfigEdit<'_> {
     }
 }
 
-pub(crate) fn update_file_at(
+pub fn update_file_at(
     path: &std::path::Path,
     description: &str,
     update: impl FnOnce(&str) -> Result<String, String>,
@@ -68,7 +68,7 @@ pub(crate) fn update_file_at(
     std::fs::write(path, updated).map_err(|error| format!("failed to save {description}: {error}"))
 }
 
-pub(crate) fn write_edit(edit: ConfigEdit<'_>) -> Result<(), String> {
+pub fn write_edit(edit: ConfigEdit<'_>) -> Result<(), String> {
     update_file_at(&super::config_path(), edit.description(), |content| {
         Ok(edit.apply(content))
     })

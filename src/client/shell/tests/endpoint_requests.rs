@@ -1,10 +1,11 @@
+use crate::protocol::ClientMessage;
 use super::*;
 use crate::client::endpoint::{ClientEndpointId, ClientEndpointStatus};
 
 fn pending_popup() -> (ClientShellState, Vec<ClientShellAction>) {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let binding = crate::config::CustomCommandKeybind {
-        bindings: crate::config::ActionKeybinds::prefix("t"),
+        bindings: crate::config::ActionKeybinds::from_labels(&["prefix+t".into()]).unwrap(),
         label: "prefix+t".into(),
         command: "popup-command".into(),
         action: crate::config::CustomCommandAction::Popup,
@@ -15,11 +16,11 @@ fn pending_popup() -> (ClientShellState, Vec<ClientShellAction>) {
     let mut projection = snapshot();
     projection
         .commands
-        .push(crate::protocol::ClientShellCommand {
+        .push(crate::client::ui_model::ClientShellCommand {
             command_id: "cmd_popup".into(),
             binding_label: binding.label.clone(),
             binding_labels: binding.bindings.labels(),
-            action: crate::protocol::ClientShellCommandAction::Popup,
+            action: crate::client::ui_model::ClientShellCommandAction::Popup,
             description: None,
         });
     state.set_snapshot(Box::new(projection));
@@ -64,7 +65,7 @@ fn request_id(actions: &[ClientShellAction]) -> &str {
     &request.id
 }
 
-fn worktree_created_result() -> crate::api::schema::ResponseResult {
+fn worktree_created_result() -> crate::client::ui_domain::ResponseResult {
     serde_json::from_value(serde_json::json!({
         "type": "worktree_created",
         "workspace": {
@@ -115,7 +116,7 @@ fn worktree_create_leaves_server_focus_unchanged() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorktreeCreate(params) if !params.focus
+        crate::client::ui_action::FrontendCommand::WorktreeCreate(params) if !params.focus
     ));
 }
 
@@ -154,7 +155,7 @@ fn worktree_create_success_focuses_returned_tab_on_its_endpoint_after_snapshot_u
         assert_eq!(target_boot, &boot_id);
         assert!(matches!(
             &request.method,
-            crate::api::schema::Method::TabFocus(target) if target.tab_id == "tab_2"
+            crate::client::ui_action::FrontendCommand::TabFocus(target) if target.tab_id == "tab_2"
         ));
         assert!(state
             .handle_endpoint_result(
@@ -216,7 +217,7 @@ fn cancelling_popup_request_unblocks_input_and_ignores_late_success() {
     assert!(!state.popup_pending);
     assert!(state.pending_requests.is_empty());
     assert!(state
-        .handle_endpoint_result("boot-1", id, Ok(crate::api::schema::ResponseResult::Ok {}))
+        .handle_endpoint_result("boot-1", id, Ok(crate::client::ui_domain::ResponseResult::Ok {}))
         .1
         .is_empty());
     assert!(!state.popup_pending);
@@ -353,7 +354,7 @@ fn stale_queued_request_is_cancelled_without_blocking_the_current_generation() {
             else {
                 panic!("expected endpoint request");
             };
-            commands.enqueue(endpoint_id, generation, boot_id, request);
+            commands.enqueue(endpoint_id, generation, boot_id, Box::new((*request).into()));
         }
     }
     let mut endpoints = EndpointRegistry::new(
@@ -382,7 +383,7 @@ fn cancelled_integration_install_does_not_queue_a_refresh() {
     state.pending_integration_installs = 1;
     let mut outcome = ClientShellInput::default();
     assert!(state.push_endpoint_method_with_kind(
-        crate::api::schema::Method::IntegrationInstall(
+        crate::client::ui_action::FrontendCommand::IntegrationInstall(
             crate::api::schema::IntegrationInstallParams {
                 target: crate::api::schema::IntegrationTarget::Pi,
             }
@@ -411,7 +412,7 @@ fn failed_selection_copy_does_not_send_terminal_input() {
         (0, 2),
     ));
     for result in [
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: String::new(),
         }),
@@ -443,7 +444,7 @@ fn cancelled_link_activation_does_not_replay_mouse_input() {
     let inner_rect = state.hits.panes[0].inner_rect;
     let mut outcome = ClientShellInput::default();
     state.push_endpoint_method_with_kind(
-        crate::api::schema::Method::PaneLinkActivate(crate::api::schema::PaneLinkActivateParams {
+        crate::client::ui_action::FrontendCommand::PaneLinkActivate(crate::api::schema::PaneLinkActivateParams {
             pane_id: pane_id.clone(),
             viewport_row: 0,
             col: 0,

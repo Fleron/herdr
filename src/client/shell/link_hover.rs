@@ -1,6 +1,6 @@
 use super::*;
-use crate::api::schema::{PaneLinkActivateParams, PaneLinkRegion};
-use crate::protocol::SurfaceRect;
+use crate::client::ui_domain::{PaneLinkActivateParams, PaneLinkRegion};
+use crate::client::ui_model::SurfaceRect;
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,7 +171,7 @@ impl ClientShellState {
             return;
         }
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneLinkResolve(PaneLinkActivateParams {
+            crate::client::ui_action::FrontendCommand::PaneLinkResolve(PaneLinkActivateParams {
                 pane_id: target.pane_id.clone(),
                 viewport_row: target.row,
                 col: target.col,
@@ -186,7 +186,7 @@ impl ClientShellState {
     pub(super) fn complete_link_hover(
         &mut self,
         target: LinkHoverTarget,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+        result: Result<crate::client::ui_domain::ResponseResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
         let cancelled = result
             .as_ref()
@@ -200,7 +200,7 @@ impl ClientShellState {
                 .is_some_and(|hover| hover.target == target)
         {
             let regions = match result {
-                Ok(crate::api::schema::ResponseResult::PaneLinkResolved { regions })
+                Ok(crate::client::ui_domain::ResponseResult::PaneLinkResolved { regions })
                     if regions.len() <= usize::from(target.inner_rect.height)
                         && regions.iter().all(|region| {
                             region.row < target.inner_rect.height
@@ -257,7 +257,7 @@ impl ClientShellState {
         };
         let hyperlink = hyperlink_at(target.col, target.row)?;
         let uri = surface.frame.hyperlinks.get(hyperlink as usize)?;
-        if crate::app::actions::safe_web_url(uri).is_none() {
+        if crate::client::terminal_text::safe_web_url(uri).is_none() {
             return Some(Vec::new());
         }
         let width = usize::from(rect.width);
@@ -303,19 +303,6 @@ impl ClientShellState {
             })
             .collect();
         Some(regions)
-    }
-
-    pub(super) fn link_hover_blocks_patch(
-        &self,
-        patch: &crate::protocol::PaneSurfacePatch,
-    ) -> bool {
-        self.link_hover.as_ref().is_some_and(|hover| {
-            !hover.regions.is_empty()
-                && patch
-                    .panes
-                    .iter()
-                    .any(|pane| pane.pane_id == hover.target.pane_id)
-        })
     }
 
     pub(super) fn render_link_hover(
@@ -366,4 +353,9 @@ impl ClientShellState {
 
 fn region_contains(region: &PaneLinkRegion, col: u16, row: u16) -> bool {
     region.row == row && col >= region.start_col && col <= region.end_col
+}
+
+legacy_shell_extensions! {
+    #[path = "link_hover/legacy.rs"]
+    mod legacy;
 }

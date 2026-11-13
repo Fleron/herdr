@@ -104,7 +104,7 @@ fn client_selection_uses_host_background_and_repaints_when_it_changes() {
             assert!(outcome
                 .requests
                 .iter()
-                .any(|request| matches!(request, ClientMessage::ClientShellHostTheme { .. })));
+                .any(|request| matches!(request, UiRequest::HostTheme { .. })));
             let frame = state.compose(106, 20).expect("host-colored selection");
             let cell = &frame.cells[cell_index];
             assert_eq!(
@@ -150,7 +150,7 @@ fn client_mouse_selection_highlights_and_copies_through_endpoint_extraction() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+                crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_1"
             )
     ));
     assert!(state
@@ -191,7 +191,7 @@ fn client_mouse_selection_highlights_and_copies_through_endpoint_extraction() {
     let request_id = request.id.clone();
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneSelectionRead(params)
+        crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
             if params.pane_id == "pane_1"
                 && params.anchor == crate::api::schema::PaneTextPoint { row: 0, col: 0 }
                 && params.cursor == crate::api::schema::PaneTextPoint { row: 0, col: 2 }
@@ -201,7 +201,7 @@ fn client_mouse_selection_highlights_and_copies_through_endpoint_extraction() {
     let (repaint, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "LIV".into(),
         }),
@@ -280,7 +280,7 @@ fn retained_mouse_selection_survives_output_and_copies_without_terminal_input() 
     assert!(state
         .selection
         .as_ref()
-        .is_some_and(crate::selection::Selection::is_finalized));
+        .is_some_and(|selection| selection.is_visible() && !selection.is_in_progress()));
 
     // A patch that redraws selected text must retain the same live terminal range.
     let mut updated = state.pane_surface.clone().expect("pane surface");
@@ -306,7 +306,7 @@ fn retained_mouse_selection_survives_output_and_copies_without_terminal_input() 
     assert!(state
         .selection
         .as_ref()
-        .is_some_and(crate::selection::Selection::is_finalized));
+        .is_some_and(|selection| selection.is_visible() && !selection.is_in_progress()));
 
     let highlighted = state.compose(106, 20).expect("highlighted frame");
     let cell_index = usize::from(pane.inner_rect.y) * 106 + usize::from(pane.inner_rect.x);
@@ -324,7 +324,7 @@ fn retained_mouse_selection_survives_output_and_copies_without_terminal_input() 
     assert!(matches!(
         &copy.actions[..],
         [ClientShellAction::Endpoint { request, .. }]
-            if matches!(request.method, crate::api::schema::Method::PaneSelectionRead(
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(
                 crate::api::schema::PaneSelectionReadParams { content_revision: None, .. }
             ))
     ));
@@ -336,7 +336,7 @@ fn retained_mouse_selection_survives_output_and_copies_without_terminal_input() 
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "yIV".into(),
         }),
@@ -349,7 +349,7 @@ fn selection_edge_drag_requests_scroll_and_timer_continues_it() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -374,7 +374,7 @@ fn selection_edge_drag_requests_scroll_and_timer_continues_it() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.offset_from_bottom == 3
             )
     ));
@@ -393,7 +393,7 @@ fn selection_edge_drag_requests_scroll_and_timer_continues_it() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.offset_from_bottom == 4
             )
     ));
@@ -405,7 +405,7 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
     state.config.copy_on_select = false;
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -449,7 +449,7 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.offset_from_bottom == 1
             )
     ));
@@ -474,7 +474,7 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneScroll(params)
+        crate::client::ui_action::FrontendCommand::PaneScroll(params)
             if params.pane_id == "pane_1" && params.offset_from_bottom == 20
     ));
     let top_request_id = request.id.clone();
@@ -504,7 +504,7 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
     assert!(copy.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                 if params.content_revision.is_none())
     )));
     assert!(copy.actions.iter().any(|action| matches!(
@@ -512,7 +512,7 @@ fn keyboard_copy_mode_owns_cursor_selection_copy_and_scroll_restore() {
         ClientShellAction::Endpoint { request, .. }
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.offset_from_bottom == 0
             )
     )));
@@ -525,7 +525,7 @@ fn keyboard_selections_survive_output_and_copy_live_ranges() {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(snapshot()));
         let mut pane_surface = surface();
-        pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+        pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
             offset_from_bottom: 0,
             max_offset_from_bottom: 0,
             viewport_rows: 2,
@@ -560,7 +560,7 @@ fn keyboard_selections_survive_output_and_copy_live_ranges() {
         assert!(copied.actions.iter().any(|action| matches!(
             action,
             ClientShellAction::Endpoint { request, .. }
-                if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+                if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                     if params.content_revision.is_none()
                         && (params.anchor.row, params.anchor.col) == range.0
                         && (params.cursor.row, params.cursor.col) == range.1)
@@ -576,7 +576,7 @@ fn empty_keyboard_anchor_keeps_search_fallback_revision_guard() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         viewport_rows: 2,
@@ -603,7 +603,7 @@ fn empty_keyboard_anchor_keeps_search_fallback_revision_guard() {
     assert!(copy.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                 if params.anchor == found.start
                     && params.cursor == found.end
                     && params.content_revision == Some(0))
@@ -616,7 +616,7 @@ fn keyboard_selection_does_not_return_after_resize_or_screen_switch() {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(snapshot()));
         let mut pane_surface = surface();
-        pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+        pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
             offset_from_bottom: 0,
             max_offset_from_bottom: 0,
             viewport_rows: 2,
@@ -650,7 +650,7 @@ fn keyboard_copy_mode_content_motion_is_endpoint_backed_and_stale_safe() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         viewport_rows: 2,
@@ -674,14 +674,14 @@ fn keyboard_copy_mode_content_motion_is_endpoint_backed_and_stale_safe() {
     let request_id = request.id.clone();
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneCopyMotion(params)
+        crate::client::ui_action::FrontendCommand::PaneCopyMotion(params)
             if params.cursor == origin
                 && params.motion == crate::api::schema::PaneCopyMotion::NextWordStart
     ));
     let (repaint, actions) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::client::ui_domain::ResponseResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
             cursor: crate::api::schema::PaneTextPoint {
                 row: origin.row,
@@ -703,7 +703,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -773,7 +773,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     let request_id = request.id.clone();
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneCopySearch(params)
+        crate::client::ui_action::FrontendCommand::PaneCopySearch(params)
             if params.pane_id == "pane_1"
                 && params.query == "needle"
                 && params.direction == crate::api::schema::PaneCopySearchDirection::Forward
@@ -805,7 +805,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
         ClientShellAction::Endpoint { request, .. }
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.offset_from_bottom == 15
             )
     )));
@@ -813,7 +813,10 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
         .iter()
         .find_map(|action| match action {
             ClientShellAction::Endpoint { request, .. }
-                if matches!(request.method, crate::api::schema::Method::PaneScroll(_)) =>
+                if matches!(
+                    request.method,
+                    crate::client::ui_action::FrontendCommand::PaneScroll(_)
+                ) =>
             {
                 Some(request.id.clone())
             }
@@ -855,7 +858,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     let repeat_id = request.id.clone();
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneCopySearch(params)
+        crate::client::ui_action::FrontendCommand::PaneCopySearch(params)
             if params.direction == crate::api::schema::PaneCopySearchDirection::Forward
                 && params.previous == Some(matches[0])
     ));
@@ -866,7 +869,10 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     );
     if let Some(scroll_id) = repeat_actions.iter().find_map(|action| match action {
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneScroll(_)) =>
+            if matches!(
+                request.method,
+                crate::client::ui_action::FrontendCommand::PaneScroll(_)
+            ) =>
         {
             Some(request.id.clone())
         }
@@ -891,7 +897,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneCopySearch(params)
+        crate::client::ui_action::FrontendCommand::PaneCopySearch(params)
             if params.direction == crate::api::schema::PaneCopySearchDirection::Backward
                 && params.previous == Some(matches[1])
     ));
@@ -902,7 +908,10 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
     );
     if let Some(scroll_id) = reverse_actions.iter().find_map(|action| match action {
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneScroll(_)) =>
+            if matches!(
+                request.method,
+                crate::client::ui_action::FrontendCommand::PaneScroll(_)
+            ) =>
         {
             Some(request.id.clone())
         }
@@ -930,7 +939,7 @@ fn copy_search_owns_prompt_repeat_highlights_selection_and_restore() {
         ClientShellAction::Endpoint { request, .. }
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneScroll(params)
+                crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.offset_from_bottom == 0
             )
     )));
@@ -1124,9 +1133,14 @@ fn navigator_searches_ancestor_context_and_keeps_split_agents_individually_actio
     second.foreground_cwd = Some("/repo/subproject".into());
     projected.panes.push(second);
     let first_agent = ClientShellAgent {
-        pane_id: "pane_1".into(),
-        workspace_id: "ws_1".into(),
-        tab_id: "tab_1".into(),
+        agent_id: "pane_1".into(),
+        view: Some(crate::client::ui_model::AgentViewTarget {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+        }),
+        runtime_target: None,
+        cwd: None,
         name: Some("writer".into()),
         display_agent: None,
         agent: Some("pi".into()),
@@ -1140,7 +1154,8 @@ fn navigator_searches_ancestor_context_and_keeps_split_agents_individually_actio
         focused: true,
     };
     let mut second_agent = first_agent.clone();
-    second_agent.pane_id = "pane_2".into();
+    second_agent.agent_id = "pane_2".into();
+    second_agent.view.as_mut().unwrap().pane_id = "pane_2".into();
     second_agent.name = Some("reviewer".into());
     second_agent.agent = Some("claude".into());
     second_agent.title = Some("checking navigation".into());
@@ -1231,7 +1246,7 @@ fn navigator_searches_ancestor_context_and_keeps_split_agents_individually_actio
     })]);
     assert!(
         matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }]
-        if matches!(&request.method, crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"))
+        if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_2"))
     );
 }
 
@@ -1794,7 +1809,7 @@ fn navigator_owns_search_mouse_selection_and_stable_target_focus() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+        crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_1"
     ));
     assert!(state.overlay.is_none());
 }
@@ -1805,7 +1820,7 @@ fn copy_mode_survives_mouse_motion_and_parks_across_focus_changes() {
     state.config.copy_on_select = false;
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 10,
         viewport_rows: 2,
@@ -1837,6 +1852,7 @@ fn copy_mode_survives_mouse_motion_and_parks_across_focus_changes() {
     unfocused.focused_pane_id = Some("pane_2".into());
     unfocused.panes[0].focused = false;
     unfocused.panes.push(ClientShellPane {
+        runtime_target: None,
         pane_id: "pane_2".into(),
         workspace_id: "ws_1".into(),
         tab_id: "tab_1".into(),
@@ -1890,7 +1906,7 @@ fn copy_mode_survives_mouse_motion_and_parks_across_focus_changes() {
     assert!(copy.requests.is_empty());
     assert!(
         matches!(&copy.actions[..], [ClientShellAction::Endpoint { request, .. }]
-        if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+        if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
             if params.pane_id == "pane_2" && params.content_revision.is_none()))
     );
 
@@ -1949,7 +1965,7 @@ fn retained_selection_copy_suppresses_key_repeats() {
     assert!(press.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }
-            if matches!(request.method, crate::api::schema::Method::PaneSelectionRead(_))
+            if matches!(request.method, crate::client::ui_action::FrontendCommand::PaneSelectionRead(_))
     )));
     let repeat = state.handle_raw_events(vec![RawInputEvent::Key(
         key.clone()
@@ -1969,7 +1985,7 @@ fn rapid_copy_motions_are_chained_from_the_previous_result() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         viewport_rows: 2,
@@ -1998,7 +2014,7 @@ fn rapid_copy_motions_are_chained_from_the_previous_result() {
     let (_, follow_up) = state.handle_endpoint_result(
         "boot-1",
         &first_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::client::ui_domain::ResponseResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
             cursor: intermediate,
             content_revision: 0,
@@ -2009,7 +2025,7 @@ fn rapid_copy_motions_are_chained_from_the_previous_result() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneCopyMotion(params)
+                crate::client::ui_action::FrontendCommand::PaneCopyMotion(params)
                     if params.cursor == intermediate
             )
     ));
@@ -2020,7 +2036,7 @@ fn queued_copy_keys_preserve_prefix_order() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 10,
         viewport_rows: 2,
@@ -2047,7 +2063,7 @@ fn queued_copy_keys_preserve_prefix_order() {
     state.handle_endpoint_result(
         "boot-1",
         &motion_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::client::ui_domain::ResponseResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
             cursor: origin,
             content_revision: 0,
@@ -2068,7 +2084,7 @@ fn reentering_copy_mode_on_the_same_pane_is_a_no_op() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 10,
         viewport_rows: 2,
@@ -2099,7 +2115,7 @@ fn copy_waits_for_endpoint_motion_before_copying_selection() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         viewport_rows: 2,
@@ -2127,7 +2143,7 @@ fn copy_waits_for_endpoint_motion_before_copying_selection() {
     let (_, actions) = state.handle_endpoint_result(
         "boot-1",
         &motion_id,
-        Ok(crate::api::schema::ResponseResult::PaneCopyMotion {
+        Ok(crate::client::ui_domain::ResponseResult::PaneCopyMotion {
             pane_id: "pane_1".into(),
             cursor: target,
             content_revision: 0,
@@ -2139,7 +2155,7 @@ fn copy_waits_for_endpoint_motion_before_copying_selection() {
         ClientShellAction::Endpoint { request, .. }
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneSelectionRead(params)
+                crate::client::ui_action::FrontendCommand::PaneSelectionRead(params)
                     if params.anchor == origin && params.cursor == target
             )
     )));
@@ -2150,7 +2166,7 @@ fn new_content_revision_invalidates_copy_search_coordinates() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 0,
         viewport_rows: 2,
@@ -2202,7 +2218,7 @@ fn word_selection_result_survives_focus_snapshot_lag() {
     let (repaint, _) = state.handle_endpoint_result(
         "boot-1",
         &request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "hello world".into(),
         }),
@@ -2220,7 +2236,7 @@ fn copy_mode_repeat_during_projection_gap_stays_active() {
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(snapshot()));
         let mut pane_surface = surface();
-        pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+        pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
             offset_from_bottom: 0,
             max_offset_from_bottom: 20,
             viewport_rows: 2,
@@ -2270,7 +2286,7 @@ fn copy_mode_repeat_during_projection_gap_stays_active() {
         assert!(moved.actions.iter().any(|action| matches!(
             action,
             ClientShellAction::Endpoint { request, .. }
-                if matches!(&request.method, crate::api::schema::Method::PaneScroll(params)
+                if matches!(&request.method, crate::client::ui_action::FrontendCommand::PaneScroll(params)
                     if params.pane_id == "pane_1" && params.offset_from_bottom == 1)
         )));
         if selection_before_gap.is_some() {

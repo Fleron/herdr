@@ -17,8 +17,8 @@ impl ClientShellState {
             Some((announcement.version.clone(), announcement.id.clone()));
         self.chrome_drag = None;
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::ProductAnnouncementDismiss(
-                crate::api::schema::ProductAnnouncementDismissParams {
+            crate::client::ui_action::FrontendCommand::ProductAnnouncementDismiss(
+                crate::client::ui_domain::ProductAnnouncementDismissParams {
                     version: announcement.version.clone(),
                     id: announcement.id.clone(),
                 },
@@ -90,8 +90,8 @@ impl ClientShellState {
             ClientShellMode::Navigate
         };
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::ReleaseNotesDismiss(
-                crate::api::schema::ReleaseNotesDismissParams {
+            crate::client::ui_action::FrontendCommand::ReleaseNotesDismiss(
+                crate::client::ui_domain::ReleaseNotesDismissParams {
                     version: notes.version.clone(),
                 },
             ),
@@ -103,16 +103,16 @@ impl ClientShellState {
 
     pub(super) fn current_release_notes_input_geometry(
         &self,
-    ) -> Option<(Rect, Option<Rect>, crate::pane::ScrollMetrics)> {
+    ) -> Option<(Rect, Option<Rect>, crate::client::ui_state::ScrollMetrics)> {
         let notes = match self.overlay.as_ref()? {
             ClientShellOverlay::ReleaseNotes(notes) => notes,
             _ => return None,
         };
         let (cols, rows) = self.last_composed_size?;
-        let outer = crate::ui::centered_popup_rect(
+        let outer = crate::client::ui::centered_popup_rect(
             Rect::new(0, 0, cols, rows),
-            crate::ui::RELEASE_NOTES_MODAL_SIZE.0,
-            crate::ui::RELEASE_NOTES_MODAL_SIZE.1,
+            crate::client::ui::RELEASE_NOTES_MODAL_SIZE.0,
+            crate::client::ui::RELEASE_NOTES_MODAL_SIZE.1,
         )?;
         let inner = Rect::new(
             outer.x.saturating_add(1),
@@ -123,8 +123,8 @@ impl ClientShellState {
         if inner.height < 8 || inner.width < 20 {
             return None;
         }
-        let stack = crate::ui::modal_stack_areas(inner, 2, 1, 0, 1);
-        let close = crate::ui::release_notes_close_button_rect(Rect::new(
+        let stack = crate::client::ui::modal_stack_areas(inner, 2, 1, 0, 1);
+        let close = crate::client::ui::release_notes_close_button_rect(Rect::new(
             stack.header.x,
             stack.header.y,
             stack.header.width,
@@ -135,13 +135,13 @@ impl ClientShellState {
             .as_deref()
             .map(|snapshot| snapshot.update_install_command.as_str())
             .unwrap_or_default();
-        let metrics = crate::ui::release_notes_scroll_metrics(
+        let metrics = crate::client::ui::release_notes_scroll_metrics(
             notes,
             install_command,
             stack.content,
             &self.config.palette,
         );
-        let track = crate::ui::release_notes_scrollbar_rect(stack.content, metrics);
+        let track = crate::client::ui::release_notes_scrollbar_rect(stack.content, metrics);
         Some((close, track, metrics))
     }
 
@@ -294,7 +294,23 @@ impl ClientShellState {
         let Some(target) = target else {
             return;
         };
+        if let ClientNavigatorTarget::Checkout {
+            endpoint_id,
+            checkout,
+        } = &target
+        {
+            if self.endpoints.iter().any(|endpoint| {
+                endpoint.endpoint_id == *endpoint_id
+                    && endpoint.status == ClientEndpointStatus::Online
+            }) {
+                self.overlay = None;
+                self.open_available_checkout(std::sync::Arc::clone(checkout), outcome);
+            }
+            outcome.repaint = true;
+            return;
+        }
         let activated = match target {
+            ClientNavigatorTarget::Checkout { .. } => unreachable!(),
             ClientNavigatorTarget::Machine { endpoint_id } => {
                 self.activate_endpoint(endpoint_id, outcome)
             }
@@ -346,10 +362,17 @@ impl ClientShellState {
                 .find(|workspace| workspace.workspace_id == workspace_id)
                 .map(|workspace| workspace.new_workspace_cwd.clone())
         });
-        let suggested_name = cwd
+        let suggested_name = self
+            .snapshot
             .as_deref()
-            .map(std::path::Path::new)
-            .map(crate::workspace::derive_label_from_cwd)
+            .and_then(|snapshot| {
+                let id = source_workspace_id.as_deref()?;
+                snapshot
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.workspace_id == id)
+                    .map(|workspace| workspace.new_workspace_label.clone())
+            })
             .unwrap_or_else(|| "workspace".to_owned());
         self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
             title: "new workspace",
@@ -572,6 +595,11 @@ impl ClientShellState {
                 }
                 _ => {}
             }
+            return;
+        }
+
+        if matches!(self.overlay, Some(ClientShellOverlay::CoreTerminals(_))) {
+            self.core_terminal_picker_key(key, outcome);
             return;
         }
 
@@ -888,14 +916,21 @@ impl ClientShellState {
             return;
         }
 
-        if matches!(self.overlay, Some(ClientShellOverlay::ConfirmClose(_))) {
+        if matches!(
+            self.overlay,
+            Some(ClientShellOverlay::ConfirmClose(_) | ClientShellOverlay::ConfirmRuntime(_))
+        ) {
             if key.code == KeyCode::Enter {
-                self.accept_close_confirmation(outcome);
+                self.accept_confirmation(outcome);
             } else if key.code == KeyCode::Esc {
+                let closing_views =
+                    matches!(self.overlay, Some(ClientShellOverlay::ConfirmClose(_)));
                 self.overlay = None;
-                self.mode = ClientShellMode::Navigate;
-                self.navigate_workspace_id = self.focused_navigation_target();
-                self.reveal_navigation_workspace = true;
+                if closing_views {
+                    self.mode = ClientShellMode::Navigate;
+                    self.navigate_workspace_id = self.focused_navigation_target();
+                    self.reveal_navigation_workspace = true;
+                }
                 outcome.repaint = true;
             }
             return;
@@ -946,8 +981,8 @@ impl ClientShellState {
                 source_workspace_id,
                 cwd,
                 suggested_name,
-            } => Some(crate::api::schema::Method::WorkspaceCreate(
-                crate::api::schema::WorkspaceCreateParams {
+            } => Some(crate::client::ui_action::FrontendCommand::WorkspaceCreate(
+                crate::client::ui_domain::WorkspaceCreateParams {
                     source_workspace_id,
                     cwd,
                     focus: true,
@@ -957,8 +992,8 @@ impl ClientShellState {
                 },
             )),
             ClientRenameTarget::Workspace { workspace_id } => (!trimmed.is_empty()).then(|| {
-                crate::api::schema::Method::WorkspaceRename(
-                    crate::api::schema::WorkspaceRenameParams {
+                crate::client::ui_action::FrontendCommand::WorkspaceRename(
+                    crate::client::ui_domain::WorkspaceRenameParams {
                         workspace_id,
                         label: trimmed.to_owned(),
                     },
@@ -967,8 +1002,8 @@ impl ClientShellState {
             ClientRenameTarget::NewTab {
                 workspace_id,
                 default_name,
-            } => Some(crate::api::schema::Method::TabCreate(
-                crate::api::schema::TabCreateParams {
+            } => Some(crate::client::ui_action::FrontendCommand::TabCreate(
+                crate::client::ui_domain::TabCreateParams {
                     workspace_id: Some(workspace_id),
                     cwd: None,
                     focus: true,
@@ -982,17 +1017,21 @@ impl ClientShellState {
                 auto_name,
                 original_name,
             } => (!(trimmed.is_empty() || auto_name && trimmed == original_name)).then(|| {
-                crate::api::schema::Method::TabRename(crate::api::schema::TabRenameParams {
-                    tab_id,
-                    label: trimmed.to_owned(),
-                })
+                crate::client::ui_action::FrontendCommand::TabRename(
+                    crate::client::ui_domain::TabRenameParams {
+                        tab_id,
+                        label: trimmed.to_owned(),
+                    },
+                )
             }),
-            ClientRenameTarget::Pane { pane_id } => Some(crate::api::schema::Method::PaneRename(
-                crate::api::schema::PaneRenameParams {
-                    pane_id,
-                    label: Some(trimmed.to_owned()),
-                },
-            )),
+            ClientRenameTarget::Pane { pane_id } => {
+                Some(crate::client::ui_action::FrontendCommand::PaneRename(
+                    crate::client::ui_domain::PaneRenameParams {
+                        pane_id,
+                        label: Some(trimmed.to_owned()),
+                    },
+                ))
+            }
         };
         if let Some(method) = method {
             self.push_endpoint_method(method, outcome);
@@ -1019,10 +1058,12 @@ impl ClientShellState {
             })
         });
         self.push_endpoint_method(
-            crate::api::schema::Method::WorkspaceClose(crate::api::schema::WorkspaceCloseParams {
-                workspace_id,
-                close_group,
-            }),
+            crate::client::ui_action::FrontendCommand::WorkspaceClose(
+                crate::client::ui_domain::WorkspaceCloseParams {
+                    workspace_id,
+                    close_group,
+                },
+            ),
             outcome,
         );
     }
@@ -1056,7 +1097,9 @@ impl ClientShellState {
             }
         }
         self.push_endpoint_method(
-            crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget { pane_id }),
+            crate::client::ui_action::FrontendCommand::PaneClose(
+                crate::client::ui_domain::PaneTarget { pane_id },
+            ),
             outcome,
         );
     }
@@ -1078,14 +1121,27 @@ impl ClientShellState {
             }
         }
         self.push_endpoint_method(
-            crate::api::schema::Method::TabClose(crate::api::schema::TabTarget { tab_id }),
+            crate::client::ui_action::FrontendCommand::TabClose(
+                crate::client::ui_domain::TabTarget { tab_id },
+            ),
             outcome,
         );
     }
 
-    pub(super) fn accept_close_confirmation(&mut self, outcome: &mut ClientShellInput) {
-        let Some(ClientShellOverlay::ConfirmClose(confirm)) = self.overlay.take() else {
-            return;
+    pub(super) fn accept_confirmation(&mut self, outcome: &mut ClientShellInput) {
+        let confirm = match self.overlay.take() {
+            Some(ClientShellOverlay::ConfirmRuntime(confirm)) => {
+                if confirm.action == crate::client::ui_action::CoreAction::DiscardHeldInput {
+                    drop(self.input_leases.remove_forwarded());
+                }
+                outcome
+                    .actions
+                    .push(ClientShellAction::Core(confirm.action));
+                outcome.repaint = true;
+                return;
+            }
+            Some(ClientShellOverlay::ConfirmClose(confirm)) => confirm,
+            _ => return,
         };
         outcome.repaint = true;
         let method = if let Some(target) = confirm.tab_target {
@@ -1113,17 +1169,23 @@ impl ClientShellState {
                 return;
             }
             if let Some(pane_id) = target.pane_id {
-                crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget { pane_id })
+                crate::client::ui_action::FrontendCommand::PaneClose(
+                    crate::client::ui_domain::PaneTarget { pane_id },
+                )
             } else {
-                crate::api::schema::Method::TabClose(crate::api::schema::TabTarget {
-                    tab_id: target.tab_id,
-                })
+                crate::client::ui_action::FrontendCommand::TabClose(
+                    crate::client::ui_domain::TabTarget {
+                        tab_id: target.tab_id,
+                    },
+                )
             }
         } else {
-            crate::api::schema::Method::WorkspaceClose(crate::api::schema::WorkspaceCloseParams {
-                workspace_id: confirm.workspace_id,
-                close_group: confirm.close_group,
-            })
+            crate::client::ui_action::FrontendCommand::WorkspaceClose(
+                crate::client::ui_domain::WorkspaceCloseParams {
+                    workspace_id: confirm.workspace_id,
+                    close_group: confirm.close_group,
+                },
+            )
         };
         self.push_endpoint_method(method, outcome);
     }

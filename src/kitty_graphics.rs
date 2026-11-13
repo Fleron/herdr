@@ -8,61 +8,60 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use base64::Engine;
 use ratatui::layout::Rect;
 
-use crate::app::state::AppState;
 use crate::ghostty::{KittyImageDescriptor, KittyImageFormat, KittyImagePlacement};
 use crate::layout::PaneId;
-use crate::terminal::TerminalRuntimeRegistry;
 
-pub(crate) mod output;
-pub(crate) mod surface;
+pub use crate::graphics_model as model;
+#[path = "kitty_graphics/output.rs"]
+pub mod output;
+#[path = "kitty_graphics/surface.rs"]
+pub mod surface;
 
-pub(crate) use output::{GraphicsOperation, GraphicsOutput};
+pub use output::{GraphicsOperation, GraphicsOutput};
 use std::sync::Arc;
 
 const KITTY_CHUNK_BYTES: usize = 3072;
-pub(crate) const HEADLESS_GRAPHICS_TRANSACTION_BUDGET: usize =
-    crate::protocol::MAX_GRAPHICS_FRAME_SIZE - crate::protocol::MAX_FRAME_SIZE;
 const HOST_IMAGE_ID_BASE: u32 = 10_000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct HostCellSize {
+pub struct HostCellSize {
     pub width_px: u32,
     pub height_px: u32,
 }
 
 impl HostCellSize {
-    pub(crate) fn is_known(self) -> bool {
+    pub fn is_known(self) -> bool {
         self.width_px > 0 && self.height_px > 0
     }
 }
 
 #[derive(Debug)]
-struct HostPlacement {
+pub struct HostPlacement {
     /// Client-local shared pixels; headless placements retain their inline data.
-    raw_data: Option<Arc<[u8]>>,
-    pane_id: PaneId,
-    host_image_id: Option<u32>,
-    area: Rect,
-    cell_size: HostCellSize,
-    source_key: HostSourceKey,
-    placement: KittyImagePlacement,
-    scrollback_offset: u32,
+    pub raw_data: Option<Arc<[u8]>>,
+    pub pane_id: PaneId,
+    pub host_image_id: Option<u32>,
+    pub area: Rect,
+    pub cell_size: HostCellSize,
+    pub source_key: HostSourceKey,
+    pub placement: KittyImagePlacement,
+    pub scrollback_offset: u32,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-enum HostSourceKey {
+pub enum HostSourceKey {
     Terminal {
         pane_id: PaneId,
         image_id: u32,
     },
     ClientSurface {
         scope: String,
-        source: crate::protocol::SurfaceGraphicsSource,
+        source: model::SurfaceGraphicsSource,
     },
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-struct ImageSignature {
+pub struct ImageSignature {
     image_width: u32,
     image_height: u32,
     format_code: u32,
@@ -87,21 +86,21 @@ struct PlacementSignature {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ClippedPlacement {
-    x: u16,
-    y: u16,
-    cols: u32,
-    rows: u32,
-    source_x: u32,
-    source_y: u32,
-    source_width: u32,
-    source_height: u32,
-    x_offset: u32,
-    y_offset: u32,
+pub struct ClippedPlacement {
+    pub x: u16,
+    pub y: u16,
+    pub cols: u32,
+    pub rows: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub x_offset: u32,
+    pub y_offset: u32,
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct HostGraphicsCache {
+pub struct HostGraphicsCache {
     images: HashMap<u32, ImageSignature>,
     placements: HashMap<(u32, u32), PlacementSignature>,
     /// Host image currently backing each (pane, source image id) pair.
@@ -112,15 +111,15 @@ pub(crate) struct HostGraphicsCache {
 
 static KITTY_GRAPHICS_ENABLED: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn set_enabled(enabled: bool) {
+pub fn set_enabled(enabled: bool) {
     KITTY_GRAPHICS_ENABLED.store(enabled, Ordering::Release);
 }
 
-pub(crate) fn is_enabled() -> bool {
+pub fn is_enabled() -> bool {
     KITTY_GRAPHICS_ENABLED.load(Ordering::Acquire)
 }
 
-pub(crate) fn image_transfer_estimated_size(data_len: usize) -> usize {
+pub fn image_transfer_estimated_size(data_len: usize) -> usize {
     let encoded = data_len.div_ceil(3).saturating_mul(4);
     let command_overhead = data_len.div_ceil(KITTY_CHUNK_BYTES).saturating_mul(16) + 1024;
     encoded.saturating_add(command_overhead)
@@ -273,14 +272,14 @@ impl HostGraphicsCache {
         self.replayed_placements.clear();
     }
 
-    pub(crate) fn request_placement_replay(&mut self) {
+    pub fn request_placement_replay(&mut self) {
         if !self.replay_placements {
             self.replay_placements = true;
             self.replayed_placements.clear();
         }
     }
 
-    pub(crate) fn clear_bytes(&mut self) -> Vec<u8> {
+    pub fn clear_bytes(&mut self) -> Vec<u8> {
         let mut bytes = Vec::new();
         for id in self.images.keys().copied().collect::<Vec<_>>() {
             encode_delete_image(&mut bytes, id);
@@ -293,85 +292,7 @@ impl HostGraphicsCache {
     }
 }
 
-fn collect_visible_placements(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    surface: crate::ui::TabSurfaceView<'_>,
-    cell_size: HostCellSize,
-    delivered_images: &HashMap<HostSourceKey, ImageSignature>,
-) -> Vec<HostPlacement> {
-    let Some(target) = surface.target else {
-        tracing::debug!("collect_visible_placements: no tab surface target");
-        return Vec::new();
-    };
-    let ws_idx = target.workspace_index;
-    if app
-        .workspaces
-        .get(ws_idx)
-        .and_then(|workspace| workspace.tabs.get(target.tab_index))
-        .is_none()
-    {
-        tracing::debug!(
-            ws_idx,
-            tab_idx = target.tab_index,
-            "collect_visible_placements: no target tab"
-        );
-        return Vec::new();
-    }
-
-    tracing::debug!(
-        ws_idx,
-        terminal_runtimes_len = terminal_runtimes.len(),
-        pane_infos_len = surface.pane_infos.len(),
-        "collect_visible_placements: starting iteration"
-    );
-    let mut placements = Vec::new();
-    for info in surface.pane_infos {
-        let runtime = match app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
-            Some(rt) => rt,
-            None => {
-                tracing::debug!(pane_id = ?info.id, "collect_visible_placements: runtime not found");
-                continue;
-            }
-        };
-        let mut requested_images = HashSet::new();
-        let pane_placements = runtime.kitty_image_placements_with_data_filter(|descriptor| {
-            if descriptor.source_file {
-                return false;
-            }
-            terminal_image_needs_data(info.id, descriptor, delivered_images, &mut requested_images)
-        });
-        if pane_placements.is_empty() {
-            continue;
-        }
-        let scrollback_offset = runtime
-            .scroll_metrics()
-            .map(|m| m.offset_from_bottom as u32)
-            .unwrap_or(0);
-        for placement in pane_placements {
-            placements.push(HostPlacement {
-                raw_data: None,
-                pane_id: info.id,
-                host_image_id: None,
-                area: info.inner_rect,
-                cell_size,
-                source_key: HostSourceKey::Terminal {
-                    pane_id: info.id,
-                    image_id: placement.image_id,
-                },
-                placement,
-                scrollback_offset,
-            });
-        }
-    }
-    tracing::debug!(
-        placements_len = placements.len(),
-        "collect_visible_placements: done"
-    );
-    placements
-}
-
-fn terminal_image_needs_data(
+pub fn terminal_image_needs_data(
     pane_id: PaneId,
     descriptor: KittyImageDescriptor,
     delivered_images: &HashMap<HostSourceKey, ImageSignature>,
@@ -424,12 +345,7 @@ fn host_placement_id(source_key: &HostSourceKey, placement: &KittyImagePlacement
 }
 
 #[cfg(unix)]
-pub(crate) fn encode_kitty_regular_file(
-    out: &mut Vec<u8>,
-    leading: &[u8],
-    control: &str,
-    path: &str,
-) {
+pub fn encode_kitty_regular_file(out: &mut Vec<u8>, leading: &[u8], control: &str, path: &str) {
     let payload = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
     out.extend_from_slice(b"\x1b7");
     out.extend_from_slice(leading);
@@ -437,7 +353,7 @@ pub(crate) fn encode_kitty_regular_file(
     out.extend_from_slice(b"\x1b8");
 }
 
-pub(crate) fn encode_delete_image(out: &mut Vec<u8>, id: u32) {
+pub fn encode_delete_image(out: &mut Vec<u8>, id: u32) {
     let _ = write!(out, "\x1b_Ga=d,d=I,i={id},q=2;\x1b\\");
 }
 
@@ -492,7 +408,7 @@ fn append_placement_controls(control: &mut String, clipped: ClippedPlacement) {
     }
 }
 
-fn clipped_placement(placement: &HostPlacement) -> Option<(ClippedPlacement, u32)> {
+pub fn clipped_placement(placement: &HostPlacement) -> Option<(ClippedPlacement, u32)> {
     if placement.area.width == 0 || placement.area.height == 0 {
         tracing::debug!(
             area_w = placement.area.width,
@@ -696,11 +612,7 @@ fn encode_kitty_data(out: &mut Vec<u8>, control: &str, data: &[u8]) {
     write_kitty_data(out, control, data).expect("writing to Vec cannot fail");
 }
 
-pub(crate) fn write_kitty_data(
-    out: &mut impl Write,
-    control: &str,
-    data: &[u8],
-) -> std::io::Result<()> {
+pub fn write_kitty_data(out: &mut impl Write, control: &str, data: &[u8]) -> std::io::Result<()> {
     let mut chunks = data.chunks(KITTY_CHUNK_BYTES).peekable();
     let Some(first) = chunks.next() else {
         return Ok(());

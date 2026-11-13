@@ -102,38 +102,11 @@ impl WorkspaceGitStatusSnapshot {
 }
 
 static NEXT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(1);
-const PUBLIC_ID_ALPHABET: &[u8; 32] = b"123456789ABCDEFGHJKMNPQRSTVWXYZ0";
+pub(crate) use crate::public_ids::{encode_public_number,decode_public_number};
 
 pub(crate) fn generate_workspace_id() -> String {
     let counter = NEXT_WORKSPACE_ID.fetch_add(1, Ordering::Relaxed);
     format!("w{}", encode_public_number(counter as usize))
-}
-
-pub(crate) fn encode_public_number(mut value: usize) -> String {
-    if value == 0 {
-        return "0".to_string();
-    }
-
-    let mut encoded = Vec::new();
-    while value > 0 {
-        let digit = (value - 1) % PUBLIC_ID_ALPHABET.len();
-        encoded.push(PUBLIC_ID_ALPHABET[digit] as char);
-        value = (value - 1) / PUBLIC_ID_ALPHABET.len();
-    }
-    encoded.iter().rev().collect()
-}
-
-pub(crate) fn decode_public_number(value: &str) -> Option<usize> {
-    let mut decoded = 0usize;
-    for ch in value.chars() {
-        let digit = PUBLIC_ID_ALPHABET
-            .iter()
-            .position(|candidate| *candidate as char == ch)?;
-        decoded = decoded
-            .checked_mul(PUBLIC_ID_ALPHABET.len())?
-            .checked_add(digit + 1)?;
-    }
-    Some(decoded)
 }
 
 pub(crate) fn public_workspace_number(id: &str) -> Option<usize> {
@@ -1218,7 +1191,11 @@ impl Workspace {
 
     pub(crate) fn test_split(&mut self, direction: Direction) -> PaneId {
         let tab = self.active_tab_mut().expect("workspace must have tab");
-        let new_id = tab.layout.split_focused(direction);
+        let new_id = tab
+            .layout
+            .split_pane(tab.layout.focused(), direction, 0.5)
+            .expect("focused pane is in the layout");
+        tab.layout.focus_pane(new_id);
         tab.panes
             .insert(new_id, PaneState::new(TerminalId::alloc()));
         self.register_new_pane(new_id);

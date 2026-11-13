@@ -11,10 +11,10 @@ use ratatui::{
 use super::*;
 
 pub(super) struct AgentRow {
-    pub(super) pane_id: String,
-    pub(super) status: crate::api::schema::AgentStatus,
+    pub(super) agent_id: String,
+    pub(super) status: crate::client::ui_domain::AgentStatus,
     pub(super) focused: bool,
-    pub(super) rows: Vec<Vec<crate::ui::ResolvedToken>>,
+    pub(super) rows: Vec<Vec<crate::client::ui::ResolvedToken>>,
 }
 
 pub(super) fn ordered_agent_pane_ids(
@@ -29,7 +29,7 @@ pub(super) fn ordered_agent_pane_ids(
                 snapshot
                     .agents
                     .iter()
-                    .any(|agent| agent.pane_id == pane_id.as_str())
+                    .any(|agent| agent.agent_id == pane_id.as_str())
             })
             .cloned()
             .collect();
@@ -45,7 +45,7 @@ pub(super) fn ordered_agent_pane_ids(
     }
     agents
         .into_iter()
-        .map(|agent| agent.pane_id.clone())
+        .map(|agent| agent.agent_id.clone())
         .collect()
 }
 
@@ -81,7 +81,7 @@ pub(super) fn render_agent_panel(
         hits,
         |row| row.rows.len(),
         |buffer, rect, row, hits| {
-            hits.agents.push((rect, row.pane_id.clone()));
+            hits.agents.push((rect, row.agent_id.clone()));
             render_agent_row(buffer, rect, row, config);
         },
     );
@@ -254,21 +254,30 @@ pub(super) fn agent_row(
     let agent = snapshot
         .agents
         .iter()
-        .find(|agent| agent.pane_id == pane_id)?;
-    let workspace = snapshot
-        .workspaces
-        .iter()
-        .find(|workspace| workspace.workspace_id == agent.workspace_id)?;
-    let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == agent.tab_id);
-    let pane = snapshot
-        .panes
-        .iter()
-        .find(|pane| pane.pane_id == agent.pane_id);
-    let tab_count = snapshot
-        .tabs
-        .iter()
-        .filter(|candidate| candidate.workspace_id == agent.workspace_id)
-        .count();
+        .find(|agent| agent.agent_id == pane_id)?;
+    let workspace = agent.view.as_ref().and_then(|view| {
+        snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.workspace_id == view.workspace_id)
+    });
+    let tab = agent
+        .view
+        .as_ref()
+        .and_then(|view| snapshot.tabs.iter().find(|tab| tab.tab_id == view.tab_id));
+    let pane = agent.view.as_ref().and_then(|view| {
+        snapshot
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == view.pane_id)
+    });
+    let tab_count = agent.view.as_ref().map_or(0, |view| {
+        snapshot
+            .tabs
+            .iter()
+            .filter(|candidate| candidate.workspace_id == view.workspace_id)
+            .count()
+    });
     let tab_label = tab
         .filter(|tab| tab_count > 1 || tab.custom_label)
         .map(|tab| tab.label.as_str());
@@ -292,11 +301,14 @@ pub(super) fn agent_row(
         .agent
         .as_deref()
         .and_then(crate::detect::parse_agent_label);
-    let rows = crate::ui::sidebar_agent_rows(
+    let rows = crate::client::ui::sidebar_agent_rows(
         &config.agents,
-        crate::ui::AgentTokenContext {
+        crate::client::ui::AgentTokenContext {
             machine,
-            workspace: &workspace.label,
+            workspace: workspace
+                .map(|workspace| workspace.label.as_str())
+                .or(agent.cwd.as_deref())
+                .unwrap_or("terminal"),
             tab: tab_label,
             pane: agent
                 .title
@@ -311,7 +323,7 @@ pub(super) fn agent_row(
         state_text,
     );
     Some(AgentRow {
-        pane_id: agent.pane_id.clone(),
+        agent_id: agent.agent_id.clone(),
         status: agent.agent_status,
         focused: agent.focused,
         rows,
@@ -346,8 +358,8 @@ pub(super) fn render_agent_row(
         Style::default().fg(status_color(row.status, palette)),
     );
     let rows = if row.rows.is_empty() {
-        vec![vec![crate::ui::ResolvedToken {
-            kind: crate::ui::ResolvedTokenKind::StateIcon,
+        vec![vec![crate::client::ui::ResolvedToken {
+            kind: crate::client::ui::ResolvedTokenKind::StateIcon,
             style: Default::default(),
         }]]
     } else {
@@ -356,7 +368,7 @@ pub(super) fn render_agent_row(
     for (index, tokens) in rows.iter().take(rect.height as usize).enumerate() {
         let indent = if index == 0 { 1 } else { 3 };
         let mut spans = vec![ratatui::text::Span::raw(" ".repeat(indent))];
-        spans.extend(crate::ui::resolved_token_spans(
+        spans.extend(crate::client::ui::resolved_token_spans(
             tokens,
             icon,
             status_style,
@@ -385,12 +397,13 @@ fn display_width(text: &str) -> usize {
     unicode_width::UnicodeWidthStr::width(text)
 }
 
-fn sidebar_status_text(status: crate::api::schema::AgentStatus) -> &'static str {
-    use crate::api::schema::AgentStatus;
+fn sidebar_status_text(status: crate::client::ui_domain::AgentStatus) -> &'static str {
+    use crate::client::ui_domain::AgentStatus;
     match status {
         AgentStatus::Blocked => "blocked",
         AgentStatus::Done => "done",
         AgentStatus::Working => "working",
-        AgentStatus::Idle | AgentStatus::Unknown => "idle",
+        AgentStatus::Idle => "idle",
+        AgentStatus::Unknown => "unknown",
     }
 }

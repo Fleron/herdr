@@ -6,6 +6,25 @@ impl ClientContextMenuOverlay {
 
         let item = |label, action| ClientContextMenuItem { label, action };
         match &self.target {
+            ClientContextMenuTarget::Checkout(checkout) => {
+                let mut items = vec![item("Open", Action::OpenCheckout)];
+                if checkout
+                    .worktree
+                    .as_ref()
+                    .is_some_and(|tree| !tree.is_linked_worktree)
+                {
+                    items.push(item("New worktree", Action::NewWorktree));
+                    items.push(item("Open worktree...", Action::OpenWorktree));
+                }
+                if checkout
+                    .worktree
+                    .as_ref()
+                    .is_some_and(|worktree| worktree.is_linked_worktree)
+                {
+                    items.push(item("Delete worktree checkout...", Action::RemoveCheckout));
+                }
+                items
+            }
             ClientContextMenuTarget::Workspace { is_git: false, .. } => {
                 vec![item("Rename", Action::Rename), item("Close", Action::Close)]
             }
@@ -84,6 +103,19 @@ impl ClientContextMenuOverlay {
 }
 
 impl ClientShellState {
+    pub(super) fn open_checkout_context_menu(
+        &mut self,
+        checkout: std::sync::Arc<ClientShellAvailableCheckout>,
+        x: u16,
+        y: u16,
+    ) {
+        self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            target: ClientContextMenuTarget::Checkout(checkout),
+            x,
+            y,
+            highlighted: 0,
+        }));
+    }
     pub(super) fn open_workspace_context_menu(&mut self, workspace_id: String, x: u16, y: u16) {
         let Some(snapshot) = self.snapshot.as_deref() else {
             return;
@@ -192,6 +224,24 @@ impl ClientShellState {
             return;
         };
         match menu.target {
+            ClientContextMenuTarget::Checkout(checkout) => match action {
+                ClientContextMenuAction::OpenCheckout => {
+                    self.open_available_checkout(checkout, outcome)
+                }
+                ClientContextMenuAction::NewWorktree | ClientContextMenuAction::OpenWorktree => {
+                    outcome.actions.push(ClientShellAction::Core(
+                        crate::client::ui_action::CoreAction::BeginCheckoutWorktree {
+                            target: checkout.target(),
+                            create: action == ClientContextMenuAction::NewWorktree,
+                        },
+                    ))
+                }
+                ClientContextMenuAction::RemoveCheckout => self.request_core_action(
+                    crate::client::ui_action::CoreAction::RemoveCheckout(checkout.target()),
+                    outcome,
+                ),
+                _ => {}
+            },
             ClientContextMenuTarget::Workspace {
                 workspace_id,
                 close_group,
@@ -286,7 +336,8 @@ impl ClientShellState {
         action: ClientContextMenuAction,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::api::schema::{Method, TabTarget};
+        use crate::client::ui_action::FrontendCommand as Method;
+        use crate::client::ui_domain::TabTarget;
 
         self.push_endpoint_method(
             Method::TabFocus(TabTarget {
@@ -320,7 +371,7 @@ impl ClientShellState {
                     }));
                 } else {
                     self.push_endpoint_method(
-                        Method::TabCreate(crate::api::schema::TabCreateParams {
+                        Method::TabCreate(crate::client::ui_domain::TabCreateParams {
                             workspace_id: Some(workspace_id),
                             cwd: None,
                             focus: true,
@@ -364,8 +415,9 @@ impl ClientShellState {
         action: ClientContextMenuAction,
         outcome: &mut ClientShellInput,
     ) {
-        use crate::api::schema::{
-            Method, PaneInputSetParams, PaneRenameParams, PaneRightClickTarget, PaneSplitParams,
+        use crate::client::ui_action::FrontendCommand as Method;
+        use crate::client::ui_domain::{
+            PaneInputSetParams, PaneRenameParams, PaneRightClickTarget, PaneSplitParams,
             PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
         };
 

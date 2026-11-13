@@ -7,10 +7,7 @@ use ratatui::{
 };
 
 use super::widgets::panel_contrast_fg;
-use crate::{
-    app::state::{CopyFeedback, Palette},
-    config::ToastClipboardPosition,
-};
+use crate::{client::ui_state::CopyFeedback, config::ToastClipboardPosition, palette::Palette};
 
 pub(crate) fn copy_feedback_rect(
     area: Rect,
@@ -122,6 +119,28 @@ pub(crate) fn render_config_diagnostic_buffer(
     }
 
     rendered_rows
+}
+
+pub(crate) fn copy_feedback_offset_for_toast(
+    area: Rect,
+    feedback: &crate::client::ui_state::CopyFeedback,
+    base_offset: u16,
+    position: crate::config::ToastClipboardPosition,
+    toast_rect: Rect,
+) -> u16 {
+    let feedback_rect = copy_feedback_rect(area, feedback, base_offset, position);
+    if rectangles_overlap(feedback_rect, toast_rect) {
+        base_offset.saturating_add(toast_rect.height)
+    } else {
+        base_offset
+    }
+}
+
+fn rectangles_overlap(left: Rect, right: Rect) -> bool {
+    left.x < right.right()
+        && right.x < left.right()
+        && left.y < right.bottom()
+        && right.y < left.bottom()
 }
 
 #[cfg(test)]

@@ -10,6 +10,12 @@ HOT_PATH_SOURCES = (
     PROJECT_ROOT / "src" / "ui.rs",
     *sorted((PROJECT_ROOT / "src" / "ui").rglob("*.rs")),
     PROJECT_ROOT / "src" / "server" / "render_stream.rs",
+    PROJECT_ROOT / "src" / "client" / "ui.rs",
+    *sorted((PROJECT_ROOT / "src" / "client" / "ui").rglob("*.rs")),
+    PROJECT_ROOT / "src" / "client" / "shell" / "render.rs",
+    PROJECT_ROOT / "src" / "core_frontend" / "surface.rs",
+    PROJECT_ROOT / "src" / "kitty_graphics" / "surface.rs",
+    PROJECT_ROOT / "src" / "core_client" / "render.rs",
 )
 APP_SERVER_SOURCES = (
     *sorted((PROJECT_ROOT / "src" / "app").rglob("*.rs")),
@@ -148,6 +154,23 @@ def find_violations(paths, rules) -> list[str]:
 
 
 class UiHotPathArchitectureTests(unittest.TestCase):
+    def test_core_rendering_has_no_io(self) -> None:
+        paths = (
+            PROJECT_ROOT / "src" / "core_client" / "render.rs",
+            PROJECT_ROOT / "src" / "core_frontend" / "surface.rs",
+            PROJECT_ROOT / "src" / "client" / "shell" / "render.rs",
+            PROJECT_ROOT / "src" / "client" / "frame.rs",
+            PROJECT_ROOT / "src" / "protocol" / "render_ansi.rs",
+        )
+        forbidden = (
+            (re.compile(r"\b(?:std::)?(?:fs|process|net)::"), "filesystem/process/network IO"),
+            (
+                re.compile(r"(?:\.|::)(?:request|connect|attach|exec|read_to_string)\s*\("),
+                "core or filesystem IO",
+            ),
+        )
+        self.assertEqual(find_violations(paths, forbidden), [])
+
     def test_render_hot_paths_avoid_known_expensive_runtime_queries(self) -> None:
         violations = find_violations(HOT_PATH_SOURCES, FORBIDDEN_CALLS)
 

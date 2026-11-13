@@ -36,13 +36,18 @@ impl ClientShellState {
             .remote_collapsed_groups
             .iter()
             .filter_map(|(endpoint_id, groups)| {
-                let ClientEndpointId::Ssh(profile_id) = endpoint_id else {
-                    return None;
+                let profile_id = match endpoint_id {
+                    ClientEndpointId::Ssh(profile_id) => profile_id.to_string(),
+                    ClientEndpointId::Core {
+                        machine_id,
+                        local: false,
+                    } => format!("core:{machine_id}"),
+                    _ => return None,
                 };
                 let mut collapsed_groups = groups.iter().cloned().collect::<Vec<_>>();
                 collapsed_groups.sort();
-                (!collapsed_groups.is_empty()).then(|| preferences::ClientRemoteCollapsedGroups {
-                    profile_id: profile_id.to_string(),
+                (!collapsed_groups.is_empty()).then_some(preferences::ClientRemoteCollapsedGroups {
+                    profile_id,
                     collapsed_groups,
                 })
             })
@@ -78,7 +83,7 @@ impl ClientShellState {
                     &loaded.invalid_sections,
                 );
                 if let Some(appearance) = self.host_appearance {
-                    self.config.palette = crate::app::client_palette_for_appearance(
+                    self.config.palette = crate::client::theme::client_palette_for_appearance(
                         &self.config.theme_runtime,
                         appearance,
                     );
@@ -111,7 +116,7 @@ impl ClientShellState {
 
 impl ClientShellConfig {
     pub(crate) fn from_config(config: &Config) -> Self {
-        let theme_runtime = crate::app::client_theme_runtime_from_config(config);
+        let theme_runtime = crate::client::theme::client_theme_runtime_from_config(config);
         Self {
             sidebar_width: config.ui.sidebar_width,
             sidebar_min_width: config.ui.sidebar_min_width,
@@ -134,7 +139,7 @@ impl ClientShellConfig {
             clipboard_toast_position: config.ui.toast.clipboard.position,
             theme_name: theme_runtime.manual_name.clone(),
             theme_runtime,
-            palette: crate::app::client_palette_from_config(config),
+            palette: crate::client::theme::client_palette_from_config(config),
             keybinds: config
                 .live_keybinds_with_diagnostics()
                 .map(|(keybinds, _diagnostics)| keybinds)
@@ -172,12 +177,6 @@ impl ClientShellConfig {
         self
     }
 
-    pub(crate) fn with_keybinding_source(mut self, source: ClientShellKeybindingSource) -> Self {
-        self.keybinding_source = source;
-        self.keybinds.keybinds.custom_commands.clear();
-        self
-    }
-
     pub(crate) fn uses_endpoint_keybindings(&self) -> bool {
         self.keybinding_source == ClientShellKeybindingSource::Endpoint
     }
@@ -190,35 +189,6 @@ impl ClientShellConfig {
         }
     }
 
-    pub(crate) fn with_local_endpoint(self, socket_path: &std::path::Path) -> Self {
-        self.with_preferences_path(preferences::path_for_local_endpoint(socket_path))
-    }
-
-    pub(crate) fn with_process_endpoint_preferences(self, socket_path: &std::path::Path) -> Self {
-        self.with_endpoint_preferences(
-            socket_path,
-            std::env::var(crate::remote::REMOTE_PREFERENCES_ENV_VAR)
-                .ok()
-                .as_deref(),
-        )
-    }
-
-    pub(crate) fn with_endpoint_preferences(
-        self,
-        socket_path: &std::path::Path,
-        remote_identity: Option<&str>,
-    ) -> Self {
-        let identity = remote_identity
-            .and_then(|value| serde_json::from_str::<(String, String)>(value).ok())
-            .filter(|(target, session)| !target.is_empty() && !session.is_empty());
-        match identity {
-            Some((target, session)) => {
-                self.with_preferences_path(preferences::path_for_remote_endpoint(&target, &session))
-            }
-            None => self.with_local_endpoint(socket_path),
-        }
-    }
-
     pub(super) fn with_preferences_path(mut self, path: std::path::PathBuf) -> Self {
         self.preferences = preferences::load(&path).unwrap_or_default();
         self.preferences_path = Some(path);
@@ -228,7 +198,7 @@ impl ClientShellConfig {
     pub(super) fn apply_snapshot_keybindings(
         &mut self,
         profile: Option<&str>,
-        commands: &[crate::protocol::ClientShellCommand],
+        commands: &[crate::client::ui_model::ClientShellCommand],
     ) -> Result<(), String> {
         let mut keybinds = match self.keybinding_source {
             ClientShellKeybindingSource::Endpoint => crate::config::keybindings_from_profile_toml(
@@ -244,19 +214,21 @@ impl ClientShellConfig {
                     .iter()
                     .filter_map(|command| {
                         let action_type = match command.action {
-                            crate::protocol::ClientShellCommandAction::Shell => {
+                            crate::client::ui_model::ClientShellCommandAction::Shell => {
                                 crate::config::CommandKeybindType::Shell
                             }
-                            crate::protocol::ClientShellCommandAction::Pane => {
+                            crate::client::ui_model::ClientShellCommandAction::Pane => {
                                 crate::config::CommandKeybindType::Pane
                             }
-                            crate::protocol::ClientShellCommandAction::Popup => {
+                            crate::client::ui_model::ClientShellCommandAction::Popup => {
                                 crate::config::CommandKeybindType::Popup
                             }
-                            crate::protocol::ClientShellCommandAction::PluginAction => {
+                            crate::client::ui_model::ClientShellCommandAction::PluginAction => {
                                 crate::config::CommandKeybindType::PluginAction
                             }
-                            crate::protocol::ClientShellCommandAction::Unknown => return None,
+                            crate::client::ui_model::ClientShellCommandAction::Unknown => {
+                                return None
+                            }
                         };
                         Some(crate::config::CommandKeybindConfig {
                             key: if command.binding_labels.len() == 1 {
@@ -370,9 +342,9 @@ impl ClientShellConfig {
         }
 
         if !invalid_section("theme") {
-            self.theme_runtime = crate::app::client_theme_runtime_from_config(config);
+            self.theme_runtime = crate::client::theme::client_theme_runtime_from_config(config);
             self.theme_name = self.theme_runtime.manual_name.clone();
-            self.palette = crate::app::client_palette_from_config(config);
+            self.palette = crate::client::theme::client_palette_from_config(config);
         }
         if !invalid_section("experimental") {
             self.switch_ascii_input_source_in_prefix =
@@ -445,28 +417,11 @@ impl ClientShellConfig {
             pane_surface,
         }
     }
+}
 
-    pub(crate) fn initial_surface_size(&self, cols: u16, rows: u16) -> ClientSurfaceSize {
-        let sidebar_collapsed = self
-            .preferences
-            .sidebar_collapsed
-            .unwrap_or(self.sidebar_start_collapsed);
-        let (min_width, max_width) =
-            crate::config::validated_sidebar_bounds(self.sidebar_min_width, self.sidebar_max_width)
-                .unwrap_or((18, 36));
-        let sidebar_width = self
-            .preferences
-            .sidebar_width
-            .unwrap_or(self.sidebar_width)
-            .clamp(min_width, max_width);
-        let surface = self
-            .layout(cols, rows, sidebar_collapsed, 0, sidebar_width)
-            .pane_surface;
-        ClientSurfaceSize {
-            cols: surface.width.max(1),
-            rows: surface.height.max(1),
-        }
-    }
+legacy_shell_extensions! {
+    #[path = "config/legacy.rs"]
+    mod legacy;
 }
 
 #[cfg(test)]
@@ -518,30 +473,6 @@ mod tests {
             shell.keybinds.prefix,
             vec![(KeyCode::Char('a'), KeyModifiers::CONTROL)]
         );
-    }
-
-    #[test]
-    fn initial_surface_size_uses_persisted_endpoint_chrome() {
-        let path = std::env::temp_dir().join(format!(
-            "herdr-initial-shell-preferences-{}.json",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&path);
-        preferences::store(
-            &path,
-            preferences::ClientChromePreferences {
-                sidebar_width: Some(31),
-                sidebar_collapsed: Some(true),
-                ..preferences::ClientChromePreferences::default()
-            },
-        )
-        .expect("persist endpoint chrome");
-        let config =
-            ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone());
-        let initial = config.initial_surface_size(100, 30);
-        let state = ClientShellState::new(config);
-        assert_eq!(initial, state.surface_size(100, 30));
-        std::fs::remove_file(path).expect("remove endpoint chrome");
     }
 
     #[test]

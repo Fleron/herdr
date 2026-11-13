@@ -27,14 +27,7 @@ static SOUND_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 static SOUND_DONE: &[u8] = include_bytes!("../assets/sounds/done.mp3");
 static SOUND_REQUEST: &[u8] = include_bytes!("../assets/sounds/request.mp3");
 
-/// Which notification sound to play.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sound {
-    /// Agent finished work (transitioned to Idle).
-    Done,
-    /// Agent needs input (transitioned to Blocked).
-    Request,
-}
+pub use crate::sound_kind::Sound;
 
 /// Play a notification sound in a background thread.
 /// Silently does nothing if no audio player is available.

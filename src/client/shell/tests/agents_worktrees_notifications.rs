@@ -29,7 +29,7 @@ fn mouse_hits_use_stable_workspace_tab_and_pane_ids() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorkspaceFocus(target)
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
             if target.workspace_id == "ws_1"
     ));
 
@@ -45,7 +45,7 @@ fn mouse_hits_use_stable_workspace_tab_and_pane_ids() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+        crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_1"
     ));
 }
 
@@ -83,7 +83,7 @@ fn collapsed_workspace_jitter_remains_a_click() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::WorkspaceFocus(target)
+                crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
                     if target.workspace_id == "ws_1"
             )
     ));
@@ -100,6 +100,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
         is_linked_worktree: false,
     });
     snapshot.workspaces.push(ClientShellWorkspace {
+            new_workspace_label:"repo".into(),
         workspace_id: "ws_2".into(),
         active_tab_id: "tab_ws2".into(),
         new_workspace_cwd: "/repo/feature".into(),
@@ -164,7 +165,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::WorkspaceFocus(target)
+                crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
                     if target.workspace_id == "ws_1"
             )
     ));
@@ -244,7 +245,7 @@ fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
             })]);
             assert!(matches!(click.actions.as_slice(),
                 [ClientShellAction::Endpoint { request, .. }]
-                    if matches!(&request.method, crate::api::schema::Method::WorkspaceFocus(target)
+                    if matches!(&request.method, crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
                         if target.workspace_id == "ws_duplicate")));
         }
         let original = state.snapshot.as_deref().unwrap().clone();
@@ -283,7 +284,7 @@ fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
             }
             assert!(matches!(close.actions.as_slice(),
                 [ClientShellAction::Endpoint { request, .. }]
-                    if matches!(&request.method, crate::api::schema::Method::WorkspaceClose(params)
+                    if matches!(&request.method, crate::client::ui_action::FrontendCommand::WorkspaceClose(params)
                         if params.workspace_id == "ws_duplicate" && !params.close_group)));
         }
     }
@@ -346,7 +347,7 @@ fn workspace_click_waits_for_release_and_drag_reorders_by_stable_id() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::WorkspaceMove(params)
+                crate::client::ui_action::FrontendCommand::WorkspaceMove(params)
                     if params.workspace_id == "ws_1" && params.insert_index == 3
             )
     ));
@@ -370,7 +371,7 @@ fn workspace_click_waits_for_release_and_drag_reorders_by_stable_id() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::WorkspaceFocus(target)
+                crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
                     if target.workspace_id == "ws_2"
             )
     ));
@@ -487,7 +488,7 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::WorkspaceMoveBlock(params)
+                crate::client::ui_action::FrontendCommand::WorkspaceMoveBlock(params)
                     if params.workspace_ids == ["ws_1", "ws_child"]
                         && params.before_workspace_id.is_none()
             )
@@ -548,12 +549,12 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
         if moving_duplicate {
             assert!(matches!(moved.actions.as_slice(),
                 [ClientShellAction::Endpoint { request, .. }]
-                    if matches!(&request.method, crate::api::schema::Method::WorkspaceMoveBlock(params)
+                    if matches!(&request.method, crate::client::ui_action::FrontendCommand::WorkspaceMoveBlock(params)
                         if params.workspace_ids == ["ws_duplicate", "ws_1", "ws_child"] && params.before_workspace_id.is_none())));
         } else {
             assert!(matches!(moved.actions.as_slice(),
                 [ClientShellAction::Endpoint { request, .. }]
-                    if matches!(&request.method, crate::api::schema::Method::WorkspaceMove(params)
+                    if matches!(&request.method, crate::client::ui_action::FrontendCommand::WorkspaceMove(params)
                         if params.workspace_id == "ws_other" && params.insert_index == 0)));
         }
     }
@@ -568,9 +569,9 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
     initial.panes.push(second);
     initial.agents = vec![
         ClientShellAgent {
-            pane_id: "pane_1".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+            agent_id: "pane_1".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_1".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some("first".into()),
             display_agent: None,
             agent: None,
@@ -584,9 +585,9 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
             focused: true,
         },
         ClientShellAgent {
-            pane_id: "pane_2".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+            agent_id: "pane_2".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_2".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some("second".into()),
             display_agent: None,
             agent: None,
@@ -613,7 +614,7 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"
+        crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_2"
     ));
 
     let mut replacement = initial;
@@ -632,7 +633,7 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1"
+        crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_1"
     ));
 
     let mut agent = ClientShellInput::default();
@@ -645,7 +646,7 @@ fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"
+        crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_2"
     ));
 }
 
@@ -658,9 +659,9 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     projected.panes.push(second_pane);
     projected.agents = vec![
         ClientShellAgent {
-            pane_id: "pane_1".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+            agent_id: "pane_1".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_1".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some("pi one".into()),
             display_agent: None,
             agent: Some("pi".into()),
@@ -674,9 +675,9 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
             focused: true,
         },
         ClientShellAgent {
-            pane_id: "pane_2".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+            agent_id: "pane_2".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_2".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some("pi two".into()),
             display_agent: None,
             agent: Some("pi".into()),
@@ -746,7 +747,7 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"
+        crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_2"
     ));
 
     state.compose(106, 10).expect("short agent sidebar frame");
@@ -797,9 +798,9 @@ fn muted_agent_sidebar_rows_do_not_stack_terminal_faint() {
     projected.tabs[0].label = "second".into();
     projected.tabs[0].custom_label = true;
     projected.agents = vec![ClientShellAgent {
-        pane_id: "pane_1".into(),
-        workspace_id: "ws_1".into(),
-        tab_id: "tab_1".into(),
+        agent_id: "pane_1".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_1".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
         name: Some("reviewer".into()),
         display_agent: None,
         agent: Some("pi".into()),
@@ -864,9 +865,9 @@ fn active_agent_view_controls_sidebar_order_and_focus_indices() {
     projected.panes.push(third_pane);
     projected.agents = vec![
         ClientShellAgent {
-            pane_id: "pane_1".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+            agent_id: "pane_1".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_1".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some("first".into()),
             display_agent: None,
             agent: Some("pi".into()),
@@ -880,9 +881,9 @@ fn active_agent_view_controls_sidebar_order_and_focus_indices() {
             focused: true,
         },
         ClientShellAgent {
-            pane_id: "pane_2".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+            agent_id: "pane_2".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_2".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some("second".into()),
             display_agent: None,
             agent: Some("pi".into()),
@@ -896,9 +897,9 @@ fn active_agent_view_controls_sidebar_order_and_focus_indices() {
             focused: false,
         },
         ClientShellAgent {
-            pane_id: "pane_3".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
+            agent_id: "pane_3".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_3".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
             name: Some("third".into()),
             display_agent: None,
             agent: Some("pi".into()),
@@ -939,7 +940,7 @@ fn active_agent_view_controls_sidebar_order_and_focus_indices() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"
+                crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_2"
             )
     ));
 
@@ -953,7 +954,7 @@ fn active_agent_view_controls_sidebar_order_and_focus_indices() {
         [ClientShellAction::Endpoint { request, .. }]
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"
+                crate::client::ui_action::FrontendCommand::PaneFocus(target) if target.pane_id == "pane_2"
             )
     ));
 }
@@ -970,9 +971,9 @@ fn agent_sort_toggle_is_client_local_and_persists_per_endpoint() {
     ));
     let mut projected = snapshot();
     projected.agents.push(ClientShellAgent {
-        pane_id: "pane_1".into(),
-        workspace_id: "ws_1".into(),
-        tab_id: "tab_1".into(),
+        agent_id: "pane_1".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_1".into(),workspace_id:"ws_1".into(),tab_id:"tab_1".into()}),
+            runtime_target:None,cwd:None,
         name: Some("pi".into()),
         display_agent: None,
         agent: Some("pi".into()),
@@ -1050,7 +1051,7 @@ fn workspace_actions_preserve_selected_target_and_client_confirmation() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorkspaceRename(params)
+        crate::client::ui_action::FrontendCommand::WorkspaceRename(params)
             if params.workspace_id == "ws_2" && params.label == "renamed"
     ));
 
@@ -1074,7 +1075,7 @@ fn workspace_actions_preserve_selected_target_and_client_confirmation() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorkspaceClose(params)
+        crate::client::ui_action::FrontendCommand::WorkspaceClose(params)
             if params.workspace_id == "ws_2" && !params.close_group
     ));
 }
@@ -1145,7 +1146,7 @@ fn named_workspace_overlay_targets_projected_source_workspace() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorkspaceCreate(params)
+        crate::client::ui_action::FrontendCommand::WorkspaceCreate(params)
             if params.source_workspace_id.as_deref() == Some("ws_1")
                 && params.cwd.as_deref() == Some("/repo")
                 && params.label.is_none()
@@ -1208,7 +1209,7 @@ fn navigate_mode_selects_workspace_locally_then_focuses_by_stable_id() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorkspaceFocus(target)
+        crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
             if target.workspace_id == "ws_2"
     ));
     assert_eq!(state.mode, ClientShellMode::Terminal);
@@ -1229,7 +1230,7 @@ fn worktree_create_previews_the_endpoint_owned_checkout_path() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorktreeList(params)
+        crate::client::ui_action::FrontendCommand::WorktreeList(params)
             if params.workspace_id.as_deref() == Some("ws_1")
     ));
     let request_id = request.id.clone();
@@ -1269,7 +1270,7 @@ fn worktree_create_previews_the_endpoint_owned_checkout_path() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorktreeCreate(params)
+        crate::client::ui_action::FrontendCommand::WorktreeCreate(params)
             if params.workspace_id.as_deref() == Some("ws_1")
                 && params.branch.as_deref() == Some("feature/client-shell")
                 && params.path.is_none()
@@ -1411,7 +1412,7 @@ fn worktree_open_filters_and_clicks_a_stable_public_entry() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::WorktreeOpen(params)
+        crate::client::ui_action::FrontendCommand::WorktreeOpen(params)
             if params.workspace_id.as_deref() == Some("ws_1")
                 && params.path.as_deref() == Some("/repo-feature")
                 && params.focus
@@ -1459,7 +1460,7 @@ fn worktree_remove_escalates_recoverable_failure_to_force_confirmation() {
         };
         assert!(matches!(
             &request.method,
-            crate::api::schema::Method::WorktreeRemove(params)
+            crate::client::ui_action::FrontendCommand::WorktreeRemove(params)
                 if params.workspace_id == "ws_1" && !params.force
         ));
         let request_id = request.id.clone();
@@ -1501,7 +1502,7 @@ fn worktree_remove_escalates_recoverable_failure_to_force_confirmation() {
         };
         assert!(matches!(
             &request.method,
-            crate::api::schema::Method::WorktreeRemove(params)
+            crate::client::ui_action::FrontendCommand::WorktreeRemove(params)
                 if params.workspace_id == "ws_1" && params.force
         ));
         let request_id = request.id.clone();
@@ -1535,9 +1536,9 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
     let mut state = ClientShellState::new(config);
     let mut projected = snapshot();
     projected.agents.push(ClientShellAgent {
-        pane_id: "pane_2".into(),
-        workspace_id: "ws_2".into(),
-        tab_id: "tab_2".into(),
+        agent_id: "pane_2".into(),
+            view:Some(crate::client::ui_model::AgentViewTarget {pane_id:"pane_2".into(),workspace_id:"ws_2".into(),tab_id:"tab_2".into()}),
+            runtime_target:None,cwd:None,
         name: None,
         display_agent: Some("codex".into()),
         agent: Some("codex".into()),
@@ -1609,7 +1610,7 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
         ClientShellAction::Endpoint { request, .. }
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneFocus(params)
+                crate::client::ui_action::FrontendCommand::PaneFocus(params)
                     if params.pane_id == "pane_2"
             )
     )));
@@ -1640,7 +1641,7 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
         ClientShellAction::Endpoint { request, .. }
             if matches!(
                 &request.method,
-                crate::api::schema::Method::PaneFocus(params)
+                crate::client::ui_action::FrontendCommand::PaneFocus(params)
                     if params.pane_id == "pane_2"
             )
     )));

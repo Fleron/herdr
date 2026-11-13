@@ -95,6 +95,19 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - name: Install pinned herdr-core for real integration tests
+        if: matrix.kind == 'unix'
+        env:
+          HC_VERSION: 0.1.20
+        run: |
+          installer="$RUNNER_TEMP/install-herdr-core.sh"
+          core_dir="$RUNNER_TEMP/herdr-core-$HC_VERSION"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://releases.herdr.dev/core/install.sh --output "$installer"
+          HC_INSTALL_DIR="$core_dir" sh "$installer"
+          test "$("$core_dir/herdr-core" --version)" = "hc $HC_VERSION"
+          echo "HERDR_CORE_BIN=$core_dir/herdr-core" >> "$GITHUB_ENV"
+
       # Zig downloads come from ziglang.org or a random community mirror and
       # vary from seconds to minutes; reuse the verified install instead.
       - name: Restore Zig compiler
@@ -194,12 +207,12 @@ jobs:
           $env:CARGO_INCREMENTAL = "1"
           just check
 
-      - name: Smoke ConPTY pane
+      - name: Smoke legacy ConPTY pane
         if: matrix.kind == 'windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = Join-Path $PWD "target\debug\herdr.exe"
+          $exe = Join-Path $PWD "target\debug\examples\legacy-regression.exe"
           .\scripts\windows_smoke_conpty_path.ps1 -ExePath $exe -Session "ci-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 
       # Save before rust-cache's post-step removes incremental state.
@@ -218,7 +231,7 @@ jobs:
           key: zig-build-v1-${{ runner.os }}-${{ runner.arch }}-0.16.0-${{ github.run_id }}-${{ github.run_attempt }}
 
   windows-conpty-package:
-    name: Windows ConPTY package
+    name: Legacy Windows ConPTY package
     runs-on: windows-2022
     timeout-minutes: 25
     steps:
@@ -274,8 +287,8 @@ jobs:
           key: conpty-package-windows-2022
           save-if: ${{ env.SAVE_CACHES }}
 
-      - name: Build Herdr
-        run: cargo build --locked --target x86_64-pc-windows-msvc
+      - name: Build legacy regression executable
+        run: cargo build --locked --target x86_64-pc-windows-msvc --example legacy-regression
 
       - name: Save Zig build cache
         if: env.SAVE_CACHES == 'true'
@@ -289,7 +302,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           Remove-Item Env:HERDR_SOCKET_PATH, Env:HERDR_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
-          $exe = Join-Path $PWD "target\x86_64-pc-windows-msvc\debug\herdr.exe"
+          $exe = Join-Path $PWD "target\x86_64-pc-windows-msvc\debug\examples\legacy-regression.exe"
           $bundle = Join-Path (Split-Path -Parent $exe) "conpty"
           New-Item -ItemType Directory -Force -Path (Join-Path $bundle "x64"), (Join-Path $bundle "arm64") | Out-Null
           Set-Content -LiteralPath (Join-Path $bundle "herdr-conpty.json") -Value "{}" -Encoding ascii
@@ -329,7 +342,7 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP "herdr-windows-x86_64"
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           .\scripts\package_windows_conpty.ps1 `
-            -HerdrExe target\x86_64-pc-windows-msvc\debug\herdr.exe `
+            -HerdrExe target\x86_64-pc-windows-msvc\debug\examples\legacy-regression.exe `
             -PackagePath $package `
             -StageDir $stage `
             -OutputPath artifacts\herdr-windows-x86_64.zip

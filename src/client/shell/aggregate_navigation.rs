@@ -1,7 +1,7 @@
 //! Endpoint-qualified rows shared by aggregate navigation surfaces.
 
 use super::*;
-use crate::protocol::ClientShellAgent;
+use crate::client::ui_model::ClientShellAgent;
 
 #[derive(Clone, Copy)]
 pub(super) struct CachedEndpointSnapshot<'a> {
@@ -50,7 +50,9 @@ pub(super) struct AggregateAgentRow<'a> {
 
 pub(super) struct AggregateAgentTarget {
     pub(super) endpoint_id: ClientEndpointId,
-    pub(super) pane_id: String,
+    pub(super) agent_id: String,
+    pub(super) target: ClientEndpointFocusTarget,
+    pub(super) focused: bool,
 }
 
 pub(super) fn aggregate_agent_rows<'a>(
@@ -90,7 +92,7 @@ pub(super) fn aggregate_agent_rows<'a>(
                     .map(move |agent| AggregateAgentRow {
                         recency: endpoint
                             .agent_recency
-                            .get(&agent.pane_id)
+                            .get(&agent.agent_id)
                             .copied()
                             .unwrap_or_default(),
                         endpoint,
@@ -139,7 +141,7 @@ pub(super) fn aggregate_agent_rows<'a>(
                         .snapshot
                         .agents
                         .iter()
-                        .find(|agent| agent.pane_id == pane_id)?;
+                        .find(|agent| agent.agent_id == pane_id)?;
                     Some(AggregateAgentRow {
                         recency: endpoint
                             .agent_recency
@@ -199,15 +201,24 @@ impl crate::agent_view_eval::AgentViewEntry for ClientAgentViewEntry<'_> {
     }
 
     fn workspace_id(&self) -> Option<std::borrow::Cow<'_, str>> {
-        Some(std::borrow::Cow::Borrowed(&self.agent.workspace_id))
+        self.agent
+            .view
+            .as_ref()
+            .map(|view| std::borrow::Cow::Borrowed(view.workspace_id.as_str()))
     }
 
     fn tab_id(&self) -> Option<std::borrow::Cow<'_, str>> {
-        Some(std::borrow::Cow::Borrowed(&self.agent.tab_id))
+        self.agent
+            .view
+            .as_ref()
+            .map(|view| std::borrow::Cow::Borrowed(view.tab_id.as_str()))
     }
 
     fn pane_id(&self) -> Option<std::borrow::Cow<'_, str>> {
-        Some(std::borrow::Cow::Borrowed(&self.agent.pane_id))
+        self.agent
+            .view
+            .as_ref()
+            .map(|view| std::borrow::Cow::Borrowed(view.pane_id.as_str()))
     }
 
     fn agent(&self) -> Option<&str> {
@@ -234,7 +245,12 @@ impl crate::agent_view_eval::AgentViewEntry for ClientAgentViewEntry<'_> {
         self.snapshot
             .workspaces
             .iter()
-            .position(|workspace| workspace.workspace_id == self.agent.workspace_id)
+            .position(|workspace| {
+                self.agent
+                    .view
+                    .as_ref()
+                    .is_some_and(|view| workspace.workspace_id == view.workspace_id)
+            })
             .map(|index| index as u64)
     }
 
@@ -242,17 +258,22 @@ impl crate::agent_view_eval::AgentViewEntry for ClientAgentViewEntry<'_> {
         self.snapshot
             .tabs
             .iter()
-            .find(|tab| tab.tab_id == self.agent.tab_id)
+            .find(|tab| {
+                self.agent
+                    .view
+                    .as_ref()
+                    .is_some_and(|view| tab.tab_id == view.tab_id)
+            })
             .map(|tab| tab.number as u64)
     }
 
     fn pane_order(&self) -> Option<u64> {
-        let suffix = self
-            .agent
+        let view = self.agent.view.as_ref()?;
+        let suffix = view
             .pane_id
-            .strip_prefix(&self.agent.workspace_id)?
+            .strip_prefix(&view.workspace_id)?
             .strip_prefix(":p")?;
-        crate::workspace::decode_public_number(suffix).map(|number| number as u64)
+        crate::public_ids::decode_public_number(suffix).map(|number| number as u64)
     }
 
     fn attention(&self) -> u64 {
@@ -268,9 +289,13 @@ pub(super) fn online_agent_targets(
     aggregate_agent_rows(endpoints, active_endpoint_id, sort)
         .into_iter()
         .filter(|row| !row.endpoint.stale())
-        .map(|row| AggregateAgentTarget {
-            endpoint_id: row.endpoint.endpoint_id.clone(),
-            pane_id: row.agent.pane_id.clone(),
+        .filter_map(|row| {
+            Some(AggregateAgentTarget {
+                endpoint_id: row.endpoint.endpoint_id.clone(),
+                agent_id: row.agent.agent_id.clone(),
+                target: agent_focus_target(row.agent)?,
+                focused: row.agent.focused,
+            })
         })
         .collect()
 }
@@ -282,10 +307,14 @@ pub(super) fn navigator_rows(
 ) -> Vec<ClientNavigatorRow> {
     let query = navigator.query.trim().to_lowercase();
     let filter = |status| match navigator.filter {
-        Some(ClientNavigatorFilter::Blocked) => status == crate::api::schema::AgentStatus::Blocked,
-        Some(ClientNavigatorFilter::Working) => status == crate::api::schema::AgentStatus::Working,
-        Some(ClientNavigatorFilter::Idle) => status == crate::api::schema::AgentStatus::Idle,
-        Some(ClientNavigatorFilter::Done) => status == crate::api::schema::AgentStatus::Done,
+        Some(ClientNavigatorFilter::Blocked) => {
+            status == crate::client::ui_domain::AgentStatus::Blocked
+        }
+        Some(ClientNavigatorFilter::Working) => {
+            status == crate::client::ui_domain::AgentStatus::Working
+        }
+        Some(ClientNavigatorFilter::Idle) => status == crate::client::ui_domain::AgentStatus::Idle,
+        Some(ClientNavigatorFilter::Done) => status == crate::client::ui_domain::AgentStatus::Done,
         None => true,
     };
     let words = query.split_whitespace().collect::<Vec<_>>();
@@ -309,7 +338,12 @@ pub(super) fn navigator_rows(
             let agents = snapshot
                 .agents
                 .iter()
-                .map(|agent| (agent.pane_id.as_str(), agent))
+                .filter_map(|agent| {
+                    agent
+                        .view
+                        .as_ref()
+                        .map(|view| (view.pane_id.as_str(), agent))
+                })
                 .collect::<HashMap<_, _>>();
             // Build endpoint-local indexes once. Walk each bucket in snapshot
             // order so interleaved input and overlapping IDs on other endpoints
@@ -347,7 +381,7 @@ pub(super) fn navigator_rows(
                     for (index, pane) in tab_panes.iter().enumerate() {
                         let agent = agents.get(pane.pane_id.as_str()).copied();
                         let status = agent
-                            .map_or(crate::api::schema::AgentStatus::Unknown, |agent| {
+                            .map_or(crate::client::ui_domain::AgentStatus::Unknown, |agent| {
                                 agent.agent_status
                             });
                         let agent_kind = agent.and_then(|agent| {
@@ -439,6 +473,35 @@ pub(super) fn navigator_rows(
                         },
                     });
                     endpoint_rows.extend(children);
+                }
+            }
+            for checkout in &snapshot.available_checkouts {
+                let matches = text(&format!(
+                    "{} {} {}",
+                    checkout.label,
+                    checkout.folder,
+                    checkout.branch.as_deref().unwrap_or_default()
+                ));
+                if filter(checkout.agent_status)
+                    && (query.is_empty() || endpoint_query_matches || matches)
+                {
+                    endpoint_rows.push(ClientNavigatorRow {
+                        depth: depth_offset,
+                        label: checkout.label.clone(),
+                        meta: checkout.branch.clone().unwrap_or_default(),
+                        detail: checkout
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| checkout.folder.clone()),
+                        agent: None,
+                        status: Some(checkout.agent_status),
+                        stale: stale || checkout.error.is_some(),
+                        current: false,
+                        target: ClientNavigatorTarget::Checkout {
+                            endpoint_id: endpoint.endpoint_id.clone(),
+                            checkout: std::sync::Arc::clone(checkout),
+                        },
+                    });
                 }
             }
         }

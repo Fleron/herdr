@@ -31,25 +31,25 @@ use std::io::Write;
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{
+use crate::frame::{
     underline_style_from_modifier, CellData, CursorState, FrameData, PaneSurfacePatchRow,
 };
 
 const REVERSED_MODIFIER: u16 = 1 << 6;
 const SYNC_OUTPUT_END: &[u8] = b"\x1b[?2026l";
 
-pub(crate) fn final_sync_output_end(bytes: &[u8]) -> Option<usize> {
+pub fn final_sync_output_end(bytes: &[u8]) -> Option<usize> {
     bytes
         .windows(SYNC_OUTPUT_END.len())
         .rposition(|window| window == SYNC_OUTPUT_END)
 }
 
 /// Bytes produced by a [`BlitEncoder`] for one terminal frame.
-pub(crate) struct EncodedBlit {
+pub struct EncodedBlit {
     /// Terminal escape bytes ready to write to the host terminal.
-    pub(crate) bytes: Vec<u8>,
+    pub bytes: Vec<u8>,
     /// Whether this frame was encoded as a full redraw.
-    pub(crate) full: bool,
+    pub full: bool,
     next_last_visible_cursor: Option<(u16, u16)>,
     next_last_cursor_shape: u8,
     suppress_visible_cursor: bool,
@@ -57,7 +57,7 @@ pub(crate) struct EncodedBlit {
 
 /// Stateful encoder that diffs semantic frames into terminal ANSI bytes.
 #[derive(Default)]
-pub(crate) struct BlitEncoder {
+pub struct BlitEncoder {
     last_frame: Option<FrameData>,
     last_visible_cursor: Option<(u16, u16)>,
     last_cursor_shape: u8,
@@ -65,15 +65,15 @@ pub(crate) struct BlitEncoder {
 }
 
 impl BlitEncoder {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn encode(&self, frame: &FrameData, repaint: bool) -> EncodedBlit {
+    pub fn encode(&self, frame: &FrameData, repaint: bool) -> EncodedBlit {
         self.encode_inner(frame, repaint, false)
     }
 
-    pub(crate) fn encode_with_suppressed_visible_cursor(
+    pub fn encode_with_suppressed_visible_cursor(
         &self,
         frame: &FrameData,
         repaint: bool,
@@ -130,18 +130,18 @@ impl BlitEncoder {
         }
     }
 
-    pub(crate) fn commit(&mut self, frame: FrameData, encoded: EncodedBlit) {
+    pub fn commit(&mut self, frame: FrameData, encoded: EncodedBlit) {
         self.last_visible_cursor = encoded.next_last_visible_cursor;
         self.last_cursor_shape = encoded.next_last_cursor_shape;
         self.suppress_visible_cursor = encoded.suppress_visible_cursor;
         self.last_frame = Some(frame);
     }
 
-    pub(crate) fn is_current(&self, frame: &FrameData) -> bool {
+    pub fn is_current(&self, frame: &FrameData) -> bool {
         self.last_frame.as_ref() == Some(frame)
     }
 
-    pub(crate) fn encode_patch(
+    pub fn encode_patch(
         &self,
         rows: &[PaneSurfacePatchRow],
         cursor: Option<CursorState>,
@@ -186,7 +186,7 @@ impl BlitEncoder {
         })
     }
 
-    pub(crate) fn patch_rows_with_drawn_cursor(
+    pub fn patch_rows_with_drawn_cursor(
         &self,
         rows: &[PaneSurfacePatchRow],
         cursor: Option<&CursorState>,
@@ -229,7 +229,7 @@ impl BlitEncoder {
         Some(rows)
     }
 
-    pub(crate) fn commit_patch(
+    pub fn commit_patch(
         &mut self,
         rows: &[PaneSurfacePatchRow],
         cursor: Option<CursorState>,
@@ -254,7 +254,7 @@ impl BlitEncoder {
     }
 }
 
-pub(crate) fn frame_with_drawn_cursor(mut frame: FrameData) -> FrameData {
+pub fn frame_with_drawn_cursor(mut frame: FrameData) -> FrameData {
     if let Some(cursor) = frame.cursor.as_ref().filter(|cursor| cursor.visible) {
         let (x, y) = clamp_cursor_position(&frame, cursor.x, cursor.y);
         let idx = (y as usize)
@@ -1067,7 +1067,7 @@ fn write_changed_cells(writer: &mut impl Write, frame: &FrameData, prev: &FrameD
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{CellData, CursorState};
+    use crate::frame::{CellData, CursorState};
 
     const WIDE_GRAPHEME: &str = "💡";
     const HALFWIDTH_VOICED_KANA: &str = "ｶ\u{ff9e}";
@@ -1192,9 +1192,10 @@ mod tests {
 
     #[test]
     fn build_sgr_preserves_curly_underline_style() {
-        let modifier = crate::protocol::modifier_to_u16(
-            crate::protocol::modifier_with_underline_style(ratatui::style::Modifier::UNDERLINED, 3),
-        );
+        let modifier = crate::frame::modifier_to_u16(crate::frame::modifier_with_underline_style(
+            ratatui::style::Modifier::UNDERLINED,
+            3,
+        ));
 
         assert_eq!(
             build_sgr(0x00_00_00_00, 0x00_00_00_00, modifier),

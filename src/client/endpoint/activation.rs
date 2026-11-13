@@ -905,7 +905,7 @@ impl PendingEndpointActivation {
                     "endpoint became unavailable during presentation synchronization".into(),
                 );
             }
-            shell.set_pane_surface(surface);
+            shell.set_pane_surface(surface.into());
             self.start_presentation_effects_fence(endpoints, lease, completion)?;
             return Ok(ActivationCompletion::AwaitingPresentationEffects);
         }
@@ -970,7 +970,7 @@ impl PendingEndpointActivation {
         let activated = shell.activate_endpoint_projection(&lease.endpoint_id);
         debug_assert!(activated, "preflighted endpoint projection must activate");
         debug_assert!(shell.endpoint_is_active(endpoints.active_id()));
-        shell.set_pane_surface(surface);
+        shell.set_pane_surface(surface.into());
         self.start_presentation_sync(endpoints, lease.clone(), completion)?;
         Ok(ActivationCompletion::AwaitingPresentationSync {
             previous: self.source.endpoint_id.clone(),
@@ -1189,6 +1189,7 @@ impl PendingEndpointActivation {
             _ => return false,
         };
         match &self.focus {
+            Some(crate::client::shell::ClientEndpointFocusTarget::Agent(_)) => false,
             #[cfg(windows)]
             Some(crate::client::shell::ClientEndpointFocusTarget::Notification {
                 pane_id, ..

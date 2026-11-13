@@ -37,7 +37,7 @@ impl Bridge {
         command
             .args([
                 "--exact",
-                "platform::remote_bridge_tests::bridge_child",
+                "platform::shared::remote_bridge_tests::bridge_child",
                 "--nocapture",
             ])
             .env("HERDR_BRIDGE_TEST_SOCKET", &path)

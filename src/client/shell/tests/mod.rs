@@ -1,73 +1,22 @@
+use super::surface_patch::{apply_composed_surface_patch, ClientPaneSurfacePatchOutcome};
 use super::*;
-use crate::api::schema::AgentStatus;
-use crate::protocol::{
+use crate::client::endpoint::SavedSshEndpoint;
+use crate::client::ui_domain::AgentStatus;
+use crate::client::ui_model::{
     ClientShellAgent, ClientShellPane, ClientShellTab, ClientShellWorktree, PaneSurfacePane,
     PaneSurfaceSplit, PaneSurfaceSplitDirection, SurfaceRect,
 };
+use crate::raw_input::RawInputEvent;
 use crossterm::event::MouseEvent;
+use crossterm::event::{KeyModifiers, MouseButton, MouseEventKind};
 mod text_editing;
 
-pub(super) fn snapshot() -> ClientShellSnapshot {
-    ClientShellSnapshot {
-        boot_id: "boot-1".into(),
-        revision: 1,
-        config_diagnostic: None,
-        product_announcement: None,
-        update_available: None,
-        update_install_command: "herdr update".into(),
-        server_keybindings_toml: None,
-        latest_release_notes_available: false,
-        integration_updates_available: false,
-        worktree_directory: "/tmp/herdr-worktrees".into(),
-        release_notes: None,
-        focused_workspace_id: Some("ws_1".into()),
-        focused_tab_id: Some("tab_1".into()),
-        focused_pane_id: Some("pane_1".into()),
-        tab_bar_right: Vec::new(),
-        tab_bar_right_separator: " ".into(),
-        agent_view_label: None,
-        agent_order: Vec::new(),
-        workspaces: vec![ClientShellWorkspace {
-            workspace_id: "ws_1".into(),
-            active_tab_id: "tab_1".into(),
-            new_workspace_cwd: "/repo".into(),
-            number: 1,
-            label: "client-shell".into(),
-            custom_label: false,
-            branch: Some("main".into()),
-            git_ahead_behind: None,
-            tokens: Vec::new(),
-            worktree: None,
-            focused: true,
-            agent_status: AgentStatus::Idle,
-        }],
-        tabs: vec![ClientShellTab {
-            tab_id: "tab_1".into(),
-            workspace_id: "ws_1".into(),
-            number: 1,
-            label: "1".into(),
-            custom_label: false,
-            zoomed: false,
-            focused: true,
-            agent_status: AgentStatus::Idle,
-        }],
-        panes: vec![ClientShellPane {
-            pane_id: "pane_1".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
-            label: None,
-            cwd: Some("/repo".into()),
-            foreground_cwd: Some("/repo".into()),
-            focused: true,
-            right_click_passthrough: false,
-        }],
-        agents: Vec::new(),
-        commands: Vec::new(),
-    }
-}
+pub(super) use super::test_support::snapshot;
 
-fn worktree_list_result(open_workspace_id: Option<&str>) -> crate::api::schema::ResponseResult {
-    crate::api::schema::ResponseResult::WorktreeList {
+fn worktree_list_result(
+    open_workspace_id: Option<&str>,
+) -> crate::client::ui_domain::ResponseResult {
+    crate::client::ui_domain::ResponseResult::WorktreeList {
         source: crate::api::schema::WorktreeSourceInfo {
             repo_key: "repo-key".into(),
             repo_name: "repo".into(),
@@ -173,8 +122,8 @@ fn pane_scroll_result(
     offset_from_bottom: u64,
     max_offset_from_bottom: u64,
     viewport_rows: u64,
-) -> crate::api::schema::ResponseResult {
-    crate::api::schema::ResponseResult::PaneInfo {
+) -> crate::client::ui_domain::ResponseResult {
+    crate::client::ui_domain::ResponseResult::PaneInfo {
         pane: crate::api::schema::PaneInfo {
             pane_id: "pane_1".into(),
             terminal_id: "terminal_1".into(),
@@ -207,9 +156,9 @@ fn pane_scroll_result(
 fn copy_search_result(
     matches: Vec<crate::api::schema::PaneTextRange>,
     current: Option<u32>,
-) -> crate::api::schema::ResponseResult {
+) -> crate::client::ui_domain::ResponseResult {
     let total = matches.len() as u64;
-    crate::api::schema::ResponseResult::PaneCopySearch {
+    crate::client::ui_domain::ResponseResult::PaneCopySearch {
         pane_id: "pane_1".into(),
         content_revision: 0,
         matches,
@@ -222,11 +171,11 @@ fn copy_search_result(
 fn surface_with_popup() -> PaneSurfaceFrame {
     let mut surface = surface();
     let popup_buffer = Buffer::with_lines(["popup-live", "", ""]);
-    surface.popup = Some(Box::new(crate::protocol::ClientShellPopupSurface {
+    surface.popup = Some(Box::new(crate::client::ui_model::ClientShellPopupSurface {
         terminal_id: "terminal-popup".into(),
         title: "popup title".into(),
-        width: Some(crate::protocol::ClientShellPopupSize::Cells(12)),
-        height: Some(crate::protocol::ClientShellPopupSize::Cells(5)),
+        width: Some(crate::client::ui_model::ClientShellPopupSize::Cells(12)),
+        height: Some(crate::client::ui_model::ClientShellPopupSize::Cells(5)),
         frame: FrameData::from_ratatui_buffer_with_hyperlinks(
             &popup_buffer,
             Some(crate::protocol::CursorState {

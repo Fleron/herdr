@@ -87,7 +87,7 @@ impl RenderProfiler {
     }
 }
 
-pub(crate) fn enabled() -> bool {
+pub fn enabled() -> bool {
     *ENABLED.get_or_init(|| {
         std::env::var(ENV_VAR)
             .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
@@ -105,31 +105,31 @@ fn with_profiler(update: impl FnOnce(&mut RenderProfiler)) {
     }
 }
 
-pub(crate) fn counter(name: &'static str, value: u64) {
+pub fn counter(name: &'static str, value: u64) {
     if value == 0 {
         return;
     }
     with_profiler(|profiler| profiler.increment(name, value));
 }
 
-pub(crate) fn event(name: &'static str) {
+pub fn event(name: &'static str) {
     counter(name, 1);
 }
 
-pub(crate) fn duration(name: &'static str, duration: Duration) {
+pub fn duration(name: &'static str, duration: Duration) {
     with_profiler(|profiler| profiler.duration(name, duration));
 }
 
-pub(crate) fn timer() -> Option<Instant> {
+pub fn timer() -> Option<Instant> {
     enabled().then(Instant::now)
 }
 
-pub(crate) fn duration_since(name: &'static str, started: Option<Instant>) {
+pub fn duration_since(name: &'static str, started: Option<Instant>) {
     if let Some(started) = started {
         duration(name, started.elapsed());
     }
 }
 
-pub(crate) fn flush_if_due() {
+pub fn flush_if_due() {
     with_profiler(RenderProfiler::flush_if_due);
 }

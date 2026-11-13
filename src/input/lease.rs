@@ -4,13 +4,13 @@ use std::hash::Hash;
 use super::{KeyIdentity, TerminalKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct InputLeaseKey<Source> {
+pub struct InputLeaseKey<Source> {
     source: Source,
     identity: KeyIdentity,
 }
 
 impl<Source> InputLeaseKey<Source> {
-    pub(crate) fn new(source: Source, key: &TerminalKey) -> Self {
+    pub fn new(source: Source, key: &TerminalKey) -> Self {
         Self {
             source,
             identity: key.identity(),
@@ -25,24 +25,24 @@ fn is_text_press(key: &TerminalKey) -> bool {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ForwardedInputLease<Target> {
-    pub(crate) target: Target,
-    pub(crate) key: TerminalKey,
+pub struct ForwardedInputLease<Target> {
+    pub target: Target,
+    pub key: TerminalKey,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ConsumedInputLease<Context> {
+pub enum ConsumedInputLease<Context> {
     ReprocessRepeats(Context),
     SuppressRepeats,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum InputLease<Context, Target> {
+pub enum InputLease<Context, Target> {
     Forwarded(ForwardedInputLease<Target>),
     Consumed(ConsumedInputLease<Context>),
 }
 
-pub(crate) enum RepeatPlan<Context, Target> {
+pub enum RepeatPlan<Context, Target> {
     Forwarded(Target),
     Reprocess {
         context: Context,
@@ -52,7 +52,7 @@ pub(crate) enum RepeatPlan<Context, Target> {
     Ignore,
 }
 
-pub(crate) struct InputLeaseTable<Source, Context, Target> {
+pub struct InputLeaseTable<Source, Context, Target> {
     leases: HashMap<InputLeaseKey<Source>, InputLease<Context, Target>>,
 }
 
@@ -70,7 +70,7 @@ where
     Context: Clone + Eq,
     Target: Clone + Eq,
 {
-    pub(crate) fn normalize_press(
+    pub fn normalize_press(
         &mut self,
         lease_key: &InputLeaseKey<Source>,
         key: TerminalKey,
@@ -91,7 +91,7 @@ where
         }
     }
 
-    pub(crate) fn complete_press(
+    pub fn complete_press(
         &mut self,
         lease_key: InputLeaseKey<Source>,
         key: &TerminalKey,
@@ -129,7 +129,7 @@ where
         }
     }
 
-    pub(crate) fn plan_repeat(
+    pub fn plan_repeat(
         &mut self,
         lease_key: InputLeaseKey<Source>,
         key: &TerminalKey,
@@ -167,7 +167,7 @@ where
         }
     }
 
-    pub(crate) fn reprocess_allowed(
+    pub fn reprocess_allowed(
         &mut self,
         lease_key: InputLeaseKey<Source>,
         expected_context: &Context,
@@ -186,7 +186,7 @@ where
     /// after Shift was let go) cannot be matched by identity. When it is the
     /// only tracked key the match is certain; with any other press held,
     /// forwarded or consumed by Herdr, nothing is taken.
-    pub(crate) fn remove_sole_text_press(
+    pub fn remove_sole_text_press(
         &mut self,
         source: Source,
     ) -> Option<InputLease<Context, Target>> {
@@ -206,11 +206,11 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn contains(&self, key: &InputLeaseKey<Source>) -> bool {
+    pub fn contains(&self, key: &InputLeaseKey<Source>) -> bool {
         self.leases.contains_key(key)
     }
 
-    pub(crate) fn insert_forwarded(
+    pub fn insert_forwarded(
         &mut self,
         key: InputLeaseKey<Source>,
         target: Target,
@@ -225,7 +225,7 @@ where
         );
     }
 
-    pub(crate) fn insert_consumed(
+    pub fn insert_consumed(
         &mut self,
         key: InputLeaseKey<Source>,
         disposition: ConsumedInputLease<Context>,
@@ -233,14 +233,11 @@ where
         self.leases.insert(key, InputLease::Consumed(disposition));
     }
 
-    pub(crate) fn remove(
-        &mut self,
-        key: &InputLeaseKey<Source>,
-    ) -> Option<InputLease<Context, Target>> {
+    pub fn remove(&mut self, key: &InputLeaseKey<Source>) -> Option<InputLease<Context, Target>> {
         self.leases.remove(key)
     }
 
-    pub(crate) fn remove_source(&mut self, source: Source) -> Vec<ForwardedInputLease<Target>> {
+    pub fn remove_source(&mut self, source: Source) -> Vec<ForwardedInputLease<Target>> {
         let keys = self
             .leases
             .keys()
@@ -250,7 +247,7 @@ where
         self.remove_keys(keys)
     }
 
-    pub(crate) fn remove_target(&mut self, target: &Target) -> Vec<ForwardedInputLease<Target>> {
+    pub fn remove_target(&mut self, target: &Target) -> Vec<ForwardedInputLease<Target>> {
         let keys = self
             .leases
             .iter()
@@ -258,6 +255,15 @@ where
                 InputLease::Forwarded(lease) if &lease.target == target => Some(*key),
                 InputLease::Forwarded(_) | InputLease::Consumed(_) => None,
             })
+            .collect::<Vec<_>>();
+        self.remove_keys(keys)
+    }
+
+    pub fn remove_forwarded(&mut self) -> Vec<ForwardedInputLease<Target>> {
+        let keys = self
+            .leases
+            .iter()
+            .filter_map(|(key, lease)| matches!(lease, InputLease::Forwarded(_)).then_some(*key))
             .collect::<Vec<_>>();
         self.remove_keys(keys)
     }
@@ -275,12 +281,12 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.leases.is_empty()
     }
 
     #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.leases.len()
     }
 }
@@ -309,6 +315,29 @@ mod tests {
                 unicode: u16::from(b'/'),
                 control_key_state: 0x0010,
             })
+    }
+
+    #[test]
+    fn discard_forwarded_preserves_consumed_shortcut_leases() {
+        let key = TerminalKey::new(KeyCode::Char('x'), KeyModifiers::empty());
+        let forwarded = InputLeaseKey::new(7, &key);
+        let consumed = InputLeaseKey::new(
+            7,
+            &TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        );
+        let mut leases = Leases::default();
+        leases.insert_forwarded(forwarded, 10, key.clone());
+        leases.insert_consumed(consumed, ConsumedInputLease::SuppressRepeats);
+        assert_eq!(
+            leases.remove_forwarded(),
+            vec![ForwardedInputLease { target: 10, key }]
+        );
+        assert!(!leases.contains(&forwarded));
+        assert!(leases.contains(&consumed));
+        assert!(matches!(
+            leases.remove(&consumed),
+            Some(InputLease::Consumed(_))
+        ));
     }
 
     #[test]

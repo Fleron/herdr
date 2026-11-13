@@ -744,20 +744,7 @@ impl Drop for ManagedSshConfigDirectory {
 
 /// Classify only SSH authentication diagnostics, not transport failures or
 /// unknown/changed host keys. This does not imply permission to prompt.
-pub(crate) fn ssh_error_requires_authentication(message: &str) -> bool {
-    let message = message.to_ascii_lowercase();
-    if message.contains("host key verification failed")
-        || message.contains("remote host identification has changed")
-    {
-        return false;
-    }
-    (message.contains("permission denied")
-        && ["(publickey", "(keyboard-interactive", "(password"]
-            .iter()
-            .any(|method| message.contains(method)))
-        || (message.contains("signing failed")
-            && (message.contains("sign_and_send_pubkey") || message.contains("agent")))
-}
+pub(crate) use crate::client::connection_diagnostics::ssh_error_requires_authentication;
 
 /// Keep this owner alive until the child has exited: OpenSSH reads its temporary
 /// config after spawn. Dropping it never stops the shared authenticated master.

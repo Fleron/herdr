@@ -5,11 +5,11 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.config.theme_runtime.auto_switch = true;
 
-    let light = crate::app::client_palette_for_appearance(
+    let light = crate::client::theme::client_palette_for_appearance(
         &state.config.theme_runtime,
         crate::terminal_theme::HostAppearance::Light,
     );
-    let dark = crate::app::client_palette_for_appearance(
+    let dark = crate::client::theme::client_palette_for_appearance(
         &state.config.theme_runtime,
         crate::terminal_theme::HostAppearance::Dark,
     );
@@ -25,7 +25,7 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
     assert!(inferred.repaint);
     assert!(matches!(
         inferred.requests.as_slice(),
-        [ClientMessage::ClientShellHostTheme {
+        [UiRequest::HostTheme {
             update: crate::protocol::ClientHostThemeUpdate::DefaultColor {
                 kind: crate::protocol::ClientHostDefaultColorKind::Background,
                 ..
@@ -46,7 +46,7 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
     assert!(explicit.query_host_theme);
     assert!(matches!(
         explicit.requests.as_slice(),
-        [ClientMessage::ClientShellHostTheme {
+        [UiRequest::HostTheme {
             update: crate::protocol::ClientHostThemeUpdate::Appearance(
                 crate::protocol::ClientHostAppearance::Dark
             )
@@ -88,7 +88,7 @@ fn full_host_palette_response_is_sent_as_one_theme_update() {
 
     let outcome = state.handle_input_bytes(responses.as_bytes());
 
-    let [ClientMessage::ClientShellHostTheme {
+    let [UiRequest::HostTheme {
         update: crate::protocol::ClientHostThemeUpdate::PaletteColors(colors),
     }] = outcome.requests.as_slice()
     else {
@@ -277,10 +277,12 @@ fn delayed_link_fallback_does_not_replay_against_changed_geometry() {
             let (_, actions) = state.handle_endpoint_result(
                 "boot-1",
                 &request.id,
-                Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
-                    url: url.map(str::to_owned),
-                    handled: false,
-                }),
+                Ok(
+                    crate::client::ui_domain::ResponseResult::PaneLinkActivated {
+                        url: url.map(str::to_owned),
+                        handled: false,
+                    },
+                ),
             );
             assert!(
                 actions.is_empty(),
@@ -312,7 +314,7 @@ fn pane_key_events(
         .requests
         .iter()
         .filter_map(|request| match request {
-            ClientMessage::ClientShellPaneInput { events, .. } => Some(events),
+            UiRequest::PaneInput { events, .. } => Some(events),
             _ => None,
         })
         .flatten()
@@ -542,7 +544,7 @@ fn physical_release_uses_the_leased_press_code_with_current_modifiers() {
 
     assert!(matches!(
         &outcome.requests[..],
-        [ClientMessage::ClientShellPaneInput { events, .. }]
+        [UiRequest::PaneInput { events, .. }]
             if matches!(
                 &events[..],
                 [ClientPaneInputEvent::Key {
@@ -561,7 +563,7 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     let mut pane_surface = surface();
-    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+    pane_surface.panes[0].scroll = Some(crate::client::frame::PaneSurfaceScrollMetrics {
         offset_from_bottom: 0,
         max_offset_from_bottom: 20,
         viewport_rows: 2,
@@ -629,7 +631,7 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
             ClientShellAction::Endpoint { request, .. }
                 if matches!(
                     request.method,
-                    crate::api::schema::Method::PaneSelectionRead(_)
+                    crate::client::ui_action::FrontendCommand::PaneSelectionRead(_)
                 ) =>
             {
                 Some(request.id.clone())
@@ -640,7 +642,7 @@ fn highlighted_search_match_copies_after_in_flight_repeat() {
     let (_, clipboard) = state.handle_endpoint_result(
         "boot-1",
         &selection_request_id,
-        Ok(crate::api::schema::ResponseResult::PaneSelection {
+        Ok(crate::client::ui_domain::ResponseResult::PaneSelection {
             pane_id: "pane_1".into(),
             text: "needle".into(),
         }),
@@ -668,7 +670,7 @@ fn pixel_host_reports_use_cells_without_target_pixel_mode_and_release_outside() 
     let down = state.handle_pixel_mouse(format!("\x1b[<0;{x};{y}M").as_bytes(), geometry);
     assert!(matches!(
         &down.requests[..],
-        [ClientMessage::ClientShellPaneInput { events, .. }]
+        [UiRequest::PaneInput { events, .. }]
             if matches!(
                 &events[..],
                 [ClientPaneInputEvent::Mouse {
@@ -682,7 +684,7 @@ fn pixel_host_reports_use_cells_without_target_pixel_mode_and_release_outside() 
     let release = state.handle_pixel_mouse(b"\x1b[<0;1;1m", geometry);
     assert!(matches!(
         &release.requests[..],
-        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+        [UiRequest::PaneInput { pane_id, events }]
             if pane_id == "pane_1"
                 && matches!(
                     &events[..],
@@ -706,7 +708,7 @@ fn shell_targets_unconsumed_input_and_keeps_prefix_local() {
 
     let text = state.handle_input_bytes(b"hello");
     assert_eq!(text.requests.len(), 1);
-    let ClientMessage::ClientShellPaneInput { pane_id, events } = &text.requests[0] else {
+    let UiRequest::PaneInput { pane_id, events } = &text.requests[0] else {
         panic!("expected targeted pane input");
     };
     assert_eq!(pane_id, "pane_1");
@@ -722,7 +724,7 @@ fn shell_targets_unconsumed_input_and_keeps_prefix_local() {
 
     let interrupt = state.handle_input_bytes(b"\x1b[99;5u");
     assert_eq!(interrupt.requests.len(), 1);
-    let ClientMessage::ClientShellPaneInput { events, .. } = &interrupt.requests[0] else {
+    let UiRequest::PaneInput { events, .. } = &interrupt.requests[0] else {
         panic!("expected semantic interrupt");
     };
     assert!(matches!(
@@ -736,7 +738,7 @@ fn shell_targets_unconsumed_input_and_keeps_prefix_local() {
     ));
 
     let alt = state.handle_input_bytes(b"\x1b[120;3u");
-    let ClientMessage::ClientShellPaneInput { events, .. } = &alt.requests[0] else {
+    let UiRequest::PaneInput { events, .. } = &alt.requests[0] else {
         panic!("expected semantic alt key");
     };
     assert!(matches!(
@@ -760,14 +762,14 @@ fn pane_key_release_keeps_the_press_target() {
 
     let press = state.handle_input_bytes(b"\x1b[99;5u");
     let release = state.handle_input_bytes(b"\x1b[99;5:3u");
-    let ClientMessage::ClientShellPaneInput {
+    let UiRequest::PaneInput {
         pane_id: press_target,
         ..
     } = &press.requests[0]
     else {
         panic!("expected targeted press");
     };
-    let ClientMessage::ClientShellPaneInput {
+    let UiRequest::PaneInput {
         pane_id: release_target,
         events,
     } = &release.requests[0]
@@ -852,7 +854,7 @@ fn rename_pane_empty_value_is_preserved_as_a_clear_request() {
     };
     assert!(matches!(
         &request.method,
-        crate::api::schema::Method::PaneRename(params)
+        crate::client::ui_action::FrontendCommand::PaneRename(params)
             if params.pane_id == "pane_1" && params.label.as_deref() == Some("")
     ));
 }
@@ -964,7 +966,7 @@ fn pane_text_commits(outcome: &ClientShellInput) -> Vec<String> {
         .requests
         .iter()
         .filter_map(|request| match request {
-            ClientMessage::ClientShellPaneInput { events, .. } => Some(events),
+            UiRequest::PaneInput { events, .. } => Some(events),
             _ => None,
         })
         .flatten()
@@ -978,7 +980,9 @@ fn pane_text_commits(outcome: &ClientShellInput) -> Vec<String> {
 /// A Kitty host that Herdr switched to report-all for prefix or navigate
 /// mode. Plain text can still arrive: Tern ignores report-all, IMEs commit
 /// text, and Ghostty `text:` binds type their bytes (#5255).
-fn report_all_kitty_host_state(snapshot: crate::protocol::ClientShellSnapshot) -> ClientShellState {
+fn report_all_kitty_host_state(
+    snapshot: crate::client::ui_model::ClientShellSnapshot,
+) -> ClientShellState {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_host_reports_key_releases(true);
     state.set_host_reports_all_keys(true);
@@ -1025,7 +1029,7 @@ fn plain_text_in_navigate_mode_runs_the_navigate_binding_on_a_report_all_host() 
             ClientShellAction::Endpoint { request, .. }
                 if matches!(
                     &request.method,
-                    crate::api::schema::Method::WorkspaceFocus(target)
+                    crate::client::ui_action::FrontendCommand::WorkspaceFocus(target)
                         if target.workspace_id == "ws_2"
                 )
         )),

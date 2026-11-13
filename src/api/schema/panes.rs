@@ -5,22 +5,13 @@ use serde::{Deserialize, Serialize};
 use crate::cli::pane::bindings as binding;
 use crate::cli::projection::{Field, Input};
 
-use super::agents::AgentSessionInfo;
-use super::common::{AgentStatus, PaneAgentState, ReadFormat, ReadSource, SplitDirection};
+use super::common::{PaneAgentState, ReadFormat, ReadSource, SplitDirection};
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum PaneRightClickTarget {
-    #[default]
-    Herdr,
-    Pane,
-}
+pub use crate::client::ui_domain::panes::PaneRightClickTarget;
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-    pub struct PaneSplitParams => PaneSplitProjection {
+    pub struct PaneSplitParams = crate::client::ui_domain::PaneSplitParams => PaneSplitProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub workspace_id: Option<String> => Field::new(None::<String>),
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,35 +32,19 @@ crate::cli::projection::cli_params! {
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-    pub struct PaneInputSetParams => PaneInputProjection {
+    pub struct PaneInputSetParams = crate::client::ui_domain::PaneInputSetParams => PaneInputProjection {
         pub pane_id: String => binding::input_target(),
         pub right_click: PaneRightClickTarget => Field::new(PaneRightClickTarget::Herdr).input(binding::right_click().required()),
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneLinkActivateParams {
-    pub pane_id: String,
-    pub viewport_row: u16,
-    pub col: u16,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_revision: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub offset_from_bottom: Option<u64>,
-}
+pub use crate::client::ui_domain::panes::PaneLinkActivateParams;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PaneDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-}
+pub use crate::client::ui_domain::panes::PaneDirection;
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
-    pub struct PaneSwapParams => PaneSwapProjection {
+    pub struct PaneSwapParams = crate::client::ui_domain::PaneSwapParams => PaneSwapProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub pane_id: Option<String> => binding::target(false),
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -118,7 +93,7 @@ pub enum PaneMoveDestination {
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
-    pub struct PaneZoomParams => PaneZoomProjection {
+    pub struct PaneZoomParams = crate::client::ui_domain::PaneZoomParams => PaneZoomProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub pane_id: Option<String> => binding::target(true),
         #[serde(default)]
@@ -129,16 +104,7 @@ crate::cli::projection::cli_params! {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum PaneZoomMode {
-    #[default]
-    Toggle,
-    On,
-    Off,
-}
+pub use crate::client::ui_domain::panes::PaneZoomMode;
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
@@ -177,15 +143,7 @@ pub struct LayoutApplyParams {
     pub root: LayoutNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct LayoutSetSplitRatioParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tab_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pane_id: Option<String>,
-    pub path: Vec<bool>,
-    pub ratio: f32,
-}
+pub use crate::client::ui_domain::panes::LayoutSetSplitRatioParams;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LayoutDescription {
@@ -244,7 +202,7 @@ crate::cli::projection::cli_params! {
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-    pub struct PaneFocusDirectionParams => PaneFocusProjection {
+    pub struct PaneFocusDirectionParams = crate::client::ui_domain::PaneFocusDirectionParams => PaneFocusProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub pane_id: Option<String> => binding::target(false),
         pub direction: PaneDirection => Field::new(PaneDirection::Left).input(binding::direction()),
@@ -253,7 +211,7 @@ crate::cli::projection::cli_params! {
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-    pub struct PaneResizeParams => PaneResizeProjection {
+    pub struct PaneResizeParams = crate::client::ui_domain::PaneResizeParams => PaneResizeProjection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub pane_id: Option<String> => binding::target(false),
         pub direction: PaneDirection => Field::new(PaneDirection::Left).input(binding::direction()),
@@ -262,74 +220,21 @@ crate::cli::projection::cli_params! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneScrollParams {
-    pub pane_id: String,
-    pub offset_from_bottom: u64,
-}
+pub use crate::client::ui_domain::panes::PaneScrollParams;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneTextPoint {
-    pub row: u32,
-    pub col: u16,
-}
+pub use crate::client::ui_domain::panes::PaneTextPoint;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneSelectionReadParams {
-    pub pane_id: String,
-    pub anchor: PaneTextPoint,
-    pub cursor: PaneTextPoint,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_revision: Option<u64>,
-}
+pub use crate::client::ui_domain::panes::PaneSelectionReadParams;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PaneCopyMotion {
-    LineEnd,
-    FirstNonBlank,
-    NextWordStart,
-    PreviousWordStart,
-    NextWordEnd,
-    NextBigWordStart,
-    PreviousBigWordStart,
-    NextBigWordEnd,
-    PreviousParagraph,
-    NextParagraph,
-}
+pub use crate::client::ui_domain::panes::PaneCopyMotion;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneCopyMotionParams {
-    pub pane_id: String,
-    pub cursor: PaneTextPoint,
-    pub motion: PaneCopyMotion,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_revision: Option<u64>,
-}
+pub use crate::client::ui_domain::panes::PaneCopyMotionParams;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PaneCopySearchDirection {
-    Forward,
-    Backward,
-}
+pub use crate::client::ui_domain::panes::PaneCopySearchDirection;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneTextRange {
-    pub start: PaneTextPoint,
-    pub end: PaneTextPoint,
-}
+pub use crate::client::ui_domain::panes::PaneTextRange;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneCopySearchParams {
-    pub pane_id: String,
-    pub query: String,
-    pub direction: PaneCopySearchDirection,
-    pub cursor: PaneTextPoint,
-    pub content_revision: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub previous: Option<PaneTextRange>,
-}
+pub use crate::client::ui_domain::panes::PaneCopySearchParams;
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
@@ -349,7 +254,7 @@ crate::cli::projection::cli_params! {
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-    pub struct PaneRenameParams => PaneRenameProjection {
+    pub struct PaneRenameParams = crate::client::ui_domain::PaneRenameParams => PaneRenameProjection {
         pub pane_id: String => Field::new(String::new()).input(binding::pane_id()),
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub label: Option<String> => binding::label(),
@@ -495,50 +400,9 @@ crate::cli::projection::cli_params! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneInfo {
-    pub pane_id: String,
-    pub terminal_id: String,
-    pub workspace_id: String,
-    pub tab_id: String,
-    pub focused: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub foreground_cwd: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub restore_error: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_title_stripped: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_agent: Option<String>,
-    pub agent_status: AgentStatus,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub state_labels: HashMap<String, String>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    #[schemars(schema_with = "super::common::metadata_token_values_schema")]
-    pub tokens: HashMap<String, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_session: Option<AgentSessionInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scroll: Option<PaneScrollInfo>,
-    pub revision: u64,
-}
+pub use crate::client::ui_domain::panes::PaneInfo;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneScrollInfo {
-    pub offset_from_bottom: u64,
-    pub max_offset_from_bottom: u64,
-    pub viewport_rows: u64,
-}
+pub use crate::client::ui_domain::panes::PaneScrollInfo;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneProcessInfo {
@@ -737,10 +601,4 @@ pub struct PaneReadResult {
     pub truncated: bool,
 }
 
-/// Inclusive display-cell columns on a pane's current viewport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PaneLinkRegion {
-    pub row: u16,
-    pub start_col: u16,
-    pub end_col: u16,
-}
+pub use crate::client::ui_domain::panes::PaneLinkRegion;
